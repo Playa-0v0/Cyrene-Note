@@ -15,6 +15,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::notes_read,
             commands::notes_save,
             commands::notes_create,
+            commands::notes_discard_local,
         ])
         .events(collect_events![events::TreeChanged, events::FileChanged])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)
@@ -40,6 +41,7 @@ pub fn run() {
             use tauri::Manager;
             app.manage(commands::AppState {
                 vault: std::sync::Mutex::new(vault_engine::VaultService::new()),
+                watcher: std::sync::Mutex::new(None),
             });
             Ok(())
         })

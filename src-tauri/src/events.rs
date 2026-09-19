@@ -10,10 +10,11 @@ pub struct TreeChanged {
     pub reason: String,
 }
 
-/// 单文件内容变化（watcher 阶段启用：外部修改热重载/冲突检测）
+/// 单文件内容变化（外部修改热重载/冲突检测）。
+/// content = None 表示文件被外部删除。
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type, Event)]
 pub struct FileChanged {
     pub path: String,
     pub content_hash: String,
-    pub content: String,
+    pub content: Option<String>,
 }

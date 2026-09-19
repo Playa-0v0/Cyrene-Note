@@ -78,6 +78,12 @@ impl From<VaultError> for AppError {
     }
 }
 
+impl From<std::io::Error> for AppError {
+    fn from(io: std::io::Error) -> Self {
+        AppError::Io { detail: io.to_string() }
+    }
+}
+
 // —— 命令请求参数 ——
 
 #[derive(Debug, Clone, Deserialize, Type)]
@@ -90,5 +96,12 @@ pub struct SaveNoteRequest {
 #[derive(Debug, Clone, Deserialize, Type)]
 pub struct CreateNoteRequest {
     pub path: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Type)]
+pub struct DiscardLocalRequest {
+    pub path: String,
+    /// 即将被丢弃的编辑器缓冲内容
     pub content: String,
 }

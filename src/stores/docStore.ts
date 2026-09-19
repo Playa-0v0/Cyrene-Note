@@ -14,6 +14,13 @@ import { commands, type AppError } from '../lib/bindings'
 
 export type DocStatus = 'clean' | 'dirty' | 'saving' | 'conflict'
 
+/** watcher 外部变更的裁决结果（Editor 消费） */
+export type HotReloadDecision =
+  | { kind: 'reload'; content: string; hash: string }
+  | { kind: 'conflict'; remoteContent: string; remoteHash: string }
+  | { kind: 'deleted' }
+  | { kind: 'ignore' }
+
 interface DocState {
   path: string | null
   baseHash: string | null
@@ -28,6 +35,16 @@ interface DocState {
   saveDoc: (content: string) => Promise<boolean>
   /** CM6 update listener 报告缓冲区变化 */
   markDirty: () => void
+  /**
+   * watcher 的 file-changed 事件到达时调用。
+   * 状态机裁决在这里；缓冲区替换由 Editor 拿返回值 dispatch。
+   */
+  onExternalChange: (path: string, hash: string, content: string | null) => HotReloadDecision
+  /**
+   * 冲突解决——丢弃本地版本：先把 LOCAL 落 history（conflict-discard），
+   * 再按磁盘内容重载。返回新内容（null = 失败）。
+   */
+  discardLocalAndReload: (localContent: string) => Promise<string | null>
   clearError: () => void
 }
 
@@ -95,6 +112,36 @@ export const useDocStore = create<DocState>((set, get) => ({
 
   markDirty: () => {
     if (useDocStore.getState().status === 'clean') set({ status: 'dirty' })
+  },
+
+  onExternalChange: (path, hash, content) => {
+    const { path: cur, status } = get()
+    if (cur !== path) return { kind: 'ignore' } // 未打开的文档：watcher 只更新索引，UI 不动
+    if (content === null) return { kind: 'deleted' }
+
+    if (status === 'clean' || status === 'saving') {
+      // 干净缓冲（或保存中——保存结果会覆盖这里，冲突路径由 save 响应处理）：
+      // 热重载，baseHash 直接推进到外部版本
+      set({ baseHash: hash, status: 'clean', conflict: null })
+      return { kind: 'reload', content, hash }
+    }
+    // 脏缓冲 + 外部修改 → 冲突。REMOTE 由 watcher 已 snapshot，
+    // 内容给冲突横幅展示（后续可加 diff）
+    set({
+      status: 'conflict',
+      conflict: { expected: get().baseHash ?? '', actual: hash },
+    })
+    return { kind: 'conflict', remoteContent: content, remoteHash: hash }
+  },
+
+  discardLocalAndReload: async (localContent) => {
+    const { path, status } = get()
+    if (!path || status !== 'conflict') return null
+    // 1) LOCAL 先落 history（契约 §4.5：丢弃前必须已入恢复存储）
+    await commands.notesDiscardLocal({ path, content: localContent })
+    // 2) 重读磁盘为新的 base
+    const content = await get().openDoc(path)
+    return content
   },
 
   clearError: () => set({ lastError: null }),

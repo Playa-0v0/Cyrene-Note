@@ -5,6 +5,9 @@
  * - 打开文档：openDoc() 返回内容 → dispatch 全文档 change
  * - 编辑：CM6 内部持有缓冲区，update listener 只上报 markDirty()
  * - 保存：saveDoc(view.state.doc.toString())，内容以值传递过 IPC
+ * - 外部修改（watcher）：onExternalChange 裁决 →
+ *     干净：dispatch 全文档 change 热重载（CM6 自动映射光标/滚动）
+ *     脏：置冲突态，横幅三选一
  *
  * autosave：停止输入 800ms 或失焦时触发。
  */
@@ -16,7 +19,8 @@ import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldGutter,
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
 
-import { useDocStore } from '../stores/docStore'
+import { events, commands } from '../lib/bindings'
+import { useDocStore, describeError } from '../stores/docStore'
 
 const AUTOSAVE_DELAY_MS = 800
 
@@ -42,6 +46,26 @@ export function Editor() {
       cancelled = true
     }
   }, [path])
+
+  // watcher 外部修改：热重载 / 冲突裁决（一次订阅，组件生命周期内有效）
+  useEffect(() => {
+    const unlisten = events.fileChanged.listen((e) => {
+      const { path: p, content_hash: hash, content } = e.payload
+      const view = viewRef.current
+      if (!view) return
+      const decision = useDocStore.getState().onExternalChange(p, hash, content)
+      if (decision.kind === 'reload') {
+        // 全文档 change：CM6 自动把 selection/滚动映射到新内容
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: decision.content },
+        })
+      }
+      // conflict / deleted / ignore：UI 态已由 store 置好，横幅/提示渲染
+    })
+    return () => {
+      unlisten.then((f) => f())
+    }
+  }, [])
 
   // 编辑器只建一次
   useEffect(() => {
@@ -108,27 +132,64 @@ export function Editor() {
   )
 }
 
-/** 冲突横幅：v1 提供"重新读取"（以磁盘为准）。LOCAL 丢弃保护（history）在 engine 侧。 */
+/**
+ * 冲突横幅。LOCAL 丢弃前先落 history（conflict-discard，Rust 侧执行），
+ * 三选一里 v1 提供两个按钮：以磁盘为准 / 保留我的（覆盖保存，走带 hash 的 save）。
+ */
 function ConflictBanner() {
   const conflict = useDocStore((s) => s.conflict)
   return (
     <div className="conflict-banner">
       <span>
-        ⚠ 保存被拒绝：磁盘版本已变化（Cyrene 可能修改了这篇笔记）
-        {conflict && <code> expected={conflict.expected.slice(0, 8)}… actual={conflict.actual.slice(0, 8)}…</code>}
+        ⚠ 磁盘版本已变化（Cyrene 可能修改了这篇笔记）
+        {conflict && <code> base={conflict.expected.slice(0, 8)}… remote={conflict.actual.slice(0, 8)}…</code>}
       </span>
       <button
         onClick={async () => {
-          const path = useDocStore.getState().path
-          if (!path) return
-          const content = await useDocStore.getState().openDoc(path)
           const view = viewRefOfBanner()
-          if (view && content !== null) {
-            view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: content } })
+          if (!view) return
+          // 1) LOCAL 抢救入 history；2) 以磁盘为准重载
+          const content = await useDocStore
+            .getState()
+            .discardLocalAndReload(view.state.doc.toString())
+          if (content !== null && viewRefOfBanner()) {
+            view.dispatch({
+              changes: { from: 0, to: view.state.doc.length, insert: content },
+            })
           }
         }}
       >
-        重新读取（以磁盘为准，放弃本地修改）
+        使用磁盘版本（本地修改已存入历史，可恢复）
+      </button>
+      <button
+        onClick={async () => {
+          const view = viewRefOfBanner()
+          if (!view) return
+          // 保留我的：以 REMOTE hash 为 expected 覆盖保存（显式选择，非静默）
+          const st = useDocStore.getState()
+          if (!st.path || !st.conflict) return
+          const expected = st.conflict.actual
+          useDocStore.setState({ status: 'saving' })
+          const result = await commands.notesSave({
+            path: st.path,
+            content: view.state.doc.toString(),
+            expected_hash: expected,
+          })
+          if (result.status === 'ok') {
+            useDocStore.setState({
+              baseHash: result.data.new_content_hash,
+              status: 'clean',
+              conflict: null,
+            })
+          } else {
+            useDocStore.setState({
+              status: 'conflict',
+              lastError: describeError(result.error),
+            })
+          }
+        }}
+      >
+        保留我的版本（覆盖磁盘）
       </button>
     </div>
   )

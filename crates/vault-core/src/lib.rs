@@ -5,9 +5,11 @@
 
 pub mod error;
 pub mod hash;
+pub mod history_source;
 pub mod normalize;
 pub mod path;
 
 pub use error::{VaultError, VaultResult};
 pub use hash::ContentHash;
+pub use history_source::HistorySource;
 pub use path::NotePath;

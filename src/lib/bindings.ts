@@ -11,6 +11,11 @@ export const commands = {
 	notesRead: (path: string) => typedError<ReadNoteResponse, AppError>(__TAURI_INVOKE("notes_read", { path })),
 	notesSave: (req: SaveNoteRequest) => typedError<SaveNoteResponse, AppError>(__TAURI_INVOKE("notes_save", { req })),
 	notesCreate: (req: CreateNoteRequest) => typedError<SaveNoteResponse, AppError>(__TAURI_INVOKE("notes_create", { req })),
+	/**
+	 *  冲突抢救：把即将被丢弃的本地版本写入 history（source=conflict-discard），
+	 *  然后前端再执行"重新读取"。契约 §4.5：丢弃前必须已入恢复存储。
+	 */
+	notesDiscardLocal: (req: DiscardLocalRequest) => typedError<SaveNoteResponse, AppError>(__TAURI_INVOKE("notes_discard_local", { req })),
 };
 
 /** Events */
@@ -28,11 +33,20 @@ export type CreateNoteRequest = {
 	content: string,
 };
 
-/**  单文件内容变化（watcher 阶段启用：外部修改热重载/冲突检测） */
+export type DiscardLocalRequest = {
+	path: string,
+	/**  即将被丢弃的编辑器缓冲内容 */
+	content: string,
+};
+
+/**
+ *  单文件内容变化（外部修改热重载/冲突检测）。
+ *  content = None 表示文件被外部删除。
+ */
 export type FileChanged = {
 	path: string,
 	content_hash: string,
-	content: string,
+	content: string | null,
 };
 
 export type NoteSummaryDto = {

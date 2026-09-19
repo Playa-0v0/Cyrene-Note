@@ -5,14 +5,19 @@
 //! 2. tmp + rename 原子写（LF、UTF-8 无 BOM）；
 //! 3. 返回新 hash。
 //!
-//! 本阶段（vertical slice）尚无 watcher / history / 索引——它们向此骨架增量加入。
+//! Snapshot-on-sight（契约 §5.1）：每次成功读到的完整磁盘版本都进 history。
+//! known 版本表供 watcher 裁决伪事件（自保存回声）。
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use vault_core::{
     error::{VaultError, VaultResult},
-    normalize, ContentHash, NotePath,
+    normalize, ContentHash, HistorySource, NotePath,
 };
+
+use crate::history::HistoryStore;
+use crate::watcher::KnownVersions;
 
 /// 文件树节点（IPC 序列化由 app 层的 DTO 负责，这里只有领域形状）。
 #[derive(Debug, Clone)]
@@ -24,14 +29,16 @@ pub struct NoteSummary {
 
 pub struct VaultService {
     root: Option<PathBuf>,
+    history: Option<Arc<HistoryStore>>,
+    known: Option<Arc<KnownVersions>>,
 }
 
 impl VaultService {
     pub fn new() -> Self {
-        Self { root: None }
+        Self { root: None, history: None, known: None }
     }
 
-    /// 打开 Vault：校验目录存在，确保 `.cyrene/` 内部目录就位。
+    /// 打开 Vault：校验目录存在，初始化 `.cyrene/`（history store + known 表）。
     pub fn open(&mut self, root: &Path) -> VaultResult<()> {
         let canonical = root.canonicalize().map_err(VaultError::Io)?;
         if !canonical.is_dir() {
@@ -41,7 +48,11 @@ impl VaultService {
             )));
         }
         std::fs::create_dir_all(canonical.join(".cyrene"))?;
+        let history = Arc::new(HistoryStore::open(&canonical)?);
+        let known = Arc::new(KnownVersions::new());
         self.root = Some(canonical);
+        self.history = Some(history);
+        self.known = Some(known);
         Ok(())
     }
 
@@ -51,6 +62,16 @@ impl VaultService {
 
     pub fn root(&self) -> VaultResult<&Path> {
         self.root.as_deref().ok_or(VaultError::VaultNotOpen)
+    }
+
+    /// history 引用（watcher 装配用）。
+    pub fn history(&self) -> VaultResult<Arc<HistoryStore>> {
+        self.history.clone().ok_or(VaultError::VaultNotOpen)
+    }
+
+    /// known 版本表引用（watcher 装配用）。
+    pub fn known_versions(&self) -> VaultResult<Arc<KnownVersions>> {
+        self.known.clone().ok_or(VaultError::VaultNotOpen)
     }
 
     /// 列出全部笔记（walkdir，跳过内部目录与临时文件）。
@@ -106,6 +127,7 @@ impl VaultService {
     }
 
     /// 读取笔记：归一化管线 + 原始字节 hash。
+    /// Snapshot-on-sight：读到的版本进 history（source=open），known 表刷新。
     pub fn read_note(&self, path: &str) -> VaultResult<(String, ContentHash)> {
         let root = self.root()?;
         let note_path = NotePath::new(path)?;
@@ -118,10 +140,16 @@ impl VaultService {
             Err(e) => return Err(VaultError::Io(e)),
         };
         let loaded = normalize::load(&bytes, path)?;
+        if let Some(h) = &self.history {
+            let _ = h.snapshot(path, &bytes, HistorySource::Open);
+        }
+        if let Some(k) = &self.known {
+            k.set(path, loaded.disk_hash.as_str());
+        }
         Ok((loaded.content, loaded.disk_hash))
     }
 
-    /// 保存笔记：乐观锁 + 原子写。成功返回新 hash。
+    /// 保存笔记：乐观锁 + 原子写 + snapshot（notes-save）。成功返回新 hash。
     pub fn save_note(&self, path: &str, content: &str, expected_hash: &str) -> VaultResult<ContentHash> {
         let root = self.root()?;
         let note_path = NotePath::new(path)?;
@@ -152,6 +180,13 @@ impl VaultService {
         }
 
         atomic_write(&abs, &bytes)?;
+        // 自保存的新版本也入链（notes-save），known 表指向新版本
+        if let Some(h) = &self.history {
+            let _ = h.snapshot(path, &bytes, HistorySource::NotesSave);
+        }
+        if let Some(k) = &self.known {
+            k.set(path, new_hash.as_str());
+        }
         Ok(new_hash)
     }
 
@@ -168,7 +203,26 @@ impl VaultService {
         }
         let bytes = normalize::encode_for_disk(content);
         atomic_write(&abs, &bytes)?;
-        Ok(ContentHash::from_bytes(&bytes))
+        let hash = ContentHash::from_bytes(&bytes);
+        if let Some(h) = &self.history {
+            let _ = h.snapshot(path, &bytes, HistorySource::NotesSave);
+        }
+        if let Some(k) = &self.known {
+            k.set(path, hash.as_str());
+        }
+        Ok(hash)
+    }
+
+    /// 冲突抢救：把本地版本（即将被丢弃的 LOCAL）落 history 后丢弃。
+    /// 契约 §4.5：任何被丢弃版本在丢弃前必须已入恢复存储。
+    pub fn discard_local(&self, path: &str, content: &str) -> VaultResult<ContentHash> {
+        let bytes = normalize::encode_for_disk(content);
+        let hash = ContentHash::from_bytes(&bytes);
+        if let Some(h) = &self.history {
+            h.snapshot(path, &bytes, HistorySource::ConflictDiscard)
+                .map_err(VaultError::Io)?;
+        }
+        Ok(hash)
     }
 }
 
