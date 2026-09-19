@@ -35,6 +35,47 @@ pub struct ReadNoteResponse {
     pub content: String,
     /// 原始磁盘字节 SHA-256（保存时作为 expected_hash 传回）
     pub content_hash: String,
+    /// 该笔记内的 wikilink 出链（target + heading + alias）
+    pub links: Vec<WikiLinkDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct WikiLinkDto {
+    pub target: String,
+    pub heading: Option<String>,
+    pub alias: Option<String>,
+    /// 起始/结束字节偏移（文档内）
+    pub span_from: u32,
+    pub span_to: u32,
+}
+
+impl From<vault_engine::NoteDocument> for ReadNoteResponse {
+    fn from(doc: vault_engine::NoteDocument) -> Self {
+        Self {
+            path: doc.path,
+            content: doc.content,
+            content_hash: doc.disk_hash.as_str().to_string(),
+            links: doc
+                .links
+                .into_iter()
+                .map(|l| WikiLinkDto {
+                    target: l.target,
+                    heading: l.heading,
+                    alias: l.alias,
+                    span_from: l.span.0.min(u32::MAX as usize) as u32,
+                    span_to: l.span.1.min(u32::MAX as usize) as u32,
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct BacklinkDto {
+    pub source_path: String,
+    pub target: String,
+    pub heading: Option<String>,
+    pub alias: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]

@@ -22,6 +22,7 @@ import { languages } from '@codemirror/language-data'
 import { events, commands } from '../lib/bindings'
 import { useDocStore, describeError } from '../stores/docStore'
 import { livePreview } from './livePreview'
+import { wikilinkDecorations, wikilinkClick } from './wikilink'
 import './livePreview.css'
 
 const AUTOSAVE_DELAY_MS = 800
@@ -103,6 +104,8 @@ export function Editor() {
           bracketMatching(),
           markdown({ base: markdownLanguage, codeLanguages: languages }),
           livePreview,
+          wikilinkDecorations,
+          wikilinkClick,
           keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
           // 缓冲区变化 → 协调态 markDirty（内容本身留在 CM6）
           EditorView.updateListener.of((update) => {

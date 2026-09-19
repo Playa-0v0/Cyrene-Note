@@ -13,6 +13,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::vault_status,
             commands::notes_list,
             commands::notes_read,
+            commands::notes_backlinks,
             commands::notes_save,
             commands::notes_create,
             commands::notes_discard_local,

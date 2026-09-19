@@ -58,3 +58,17 @@
   text-underline-offset: 2px;
   cursor: pointer;
 }
+
+/* wikilink：Obsidian 风格的紫色链接 + hover 下划线 */
+.lp-wikilink {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  text-underline-offset: 3px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.lp-wikilink:hover {
+  text-decoration-style: solid;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}

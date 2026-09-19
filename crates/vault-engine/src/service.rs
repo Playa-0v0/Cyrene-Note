@@ -18,6 +18,7 @@ use vault_core::{
 
 use crate::history::HistoryStore;
 use crate::watcher::KnownVersions;
+use vault_core::WikiLink;
 
 /// 文件树节点（IPC 序列化由 app 层的 DTO 负责，这里只有领域形状）。
 #[derive(Debug, Clone)]
@@ -27,15 +28,76 @@ pub struct NoteSummary {
     pub modified_ms: u64,
 }
 
+/// read_note 的完整产物：内容 + hash + 出链列表。
+#[derive(Debug, Clone)]
+pub struct NoteDocument {
+    pub path: String,
+    pub content: String,
+    pub disk_hash: ContentHash,
+    pub links: Vec<WikiLink>,
+}
+
+/// 内存 link index：src_path → 出链。v1 用 HashMap，FTS5 阶段再迁 SQLite。
+#[derive(Default)]
+pub struct LinkIndex {
+    /// 笔记路径 → 它的出链 (raw，含未解析 target/alias/heading)
+    outgoing: std::sync::Mutex<std::collections::HashMap<String, Vec<WikiLink>>>,
+}
+
+impl LinkIndex {
+    pub fn rebuild_for(&self, path: &str, links: Vec<WikiLink>) {
+        self.outgoing
+            .lock()
+            .unwrap()
+            .insert(path.to_string(), links);
+    }
+
+    pub fn remove(&self, path: &str) {
+        self.outgoing.lock().unwrap().remove(path);
+    }
+
+    /// 反向索引：找出所有 src 指向 target 的笔记。
+    /// v1 用精确 target 匹配；basename/大小写/rename 留 §7.3 决议。
+    pub fn backlinks(&self, target: &str) -> Vec<(String, WikiLink)> {
+        self.outgoing
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(src, links)| {
+                let matching: Vec<WikiLink> = links
+                    .iter()
+                    .filter(|l| l.target == target)
+                    .cloned()
+                    .collect();
+                if matching.is_empty() {
+                    None
+                } else {
+                    matching.into_iter().next().map(|l| (src.clone(), l))
+                }
+            })
+            .collect()
+    }
+
+    pub fn outgoing_for(&self, path: &str) -> Vec<WikiLink> {
+        self.outgoing
+            .lock()
+            .unwrap()
+            .get(path)
+            .cloned()
+            .unwrap_or_default()
+    }
+}
+
 pub struct VaultService {
     root: Option<PathBuf>,
     history: Option<Arc<HistoryStore>>,
     known: Option<Arc<KnownVersions>>,
+    links: Arc<LinkIndex>,
 }
 
 impl VaultService {
     pub fn new() -> Self {
-        Self { root: None, history: None, known: None }
+        Self { root: None, history: None, known: None, links: Arc::new(LinkIndex::default()) }
     }
 
     /// 打开 Vault：校验目录存在，初始化 `.cyrene/`（history store + known 表）。
@@ -127,8 +189,9 @@ impl VaultService {
     }
 
     /// 读取笔记：归一化管线 + 原始字节 hash。
-    /// Snapshot-on-sight：读到的版本进 history（source=open），known 表刷新。
-    pub fn read_note(&self, path: &str) -> VaultResult<(String, ContentHash)> {
+    /// Snapshot-on-sight：读到的版本进 history（source=open），known 表刷新，
+    /// 同时扫描 wikilink 重建该路径的出链索引。
+    pub fn read_note_full(&self, path: &str) -> VaultResult<NoteDocument> {
         let root = self.root()?;
         let note_path = NotePath::new(path)?;
         let abs = note_path.join(root);
@@ -146,7 +209,26 @@ impl VaultService {
         if let Some(k) = &self.known {
             k.set(path, loaded.disk_hash.as_str());
         }
-        Ok((loaded.content, loaded.disk_hash))
+        // wikilink 提取 + 更新索引（顺序：先扫描，再更新索引）
+        let links = vault_core::wikilink::extract_links(&loaded.content);
+        self.links.rebuild_for(path, links.clone());
+        Ok(NoteDocument {
+            path: path.to_string(),
+            content: loaded.content,
+            disk_hash: loaded.disk_hash,
+            links,
+        })
+    }
+
+    /// 保留旧接口（仅 content + hash），供未来不需 link 的场景
+    pub fn read_note(&self, path: &str) -> VaultResult<(String, ContentHash)> {
+        let doc = self.read_note_full(path)?;
+        Ok((doc.content, doc.disk_hash))
+    }
+
+    /// 反向链接查询。
+    pub fn backlinks(&self, target: &str) -> Vec<(String, WikiLink)> {
+        self.links.backlinks(target)
     }
 
     /// 保存笔记：乐观锁 + 原子写 + snapshot（notes-save）。成功返回新 hash。
@@ -187,6 +269,10 @@ impl VaultService {
         if let Some(k) = &self.known {
             k.set(path, new_hash.as_str());
         }
+        // wikilink 索引同步：重提取并替换该路径的出链
+        let normalized = String::from_utf8(bytes).unwrap_or_default();
+        let links = vault_core::wikilink::extract_links(&normalized);
+        self.links.rebuild_for(path, links);
         Ok(new_hash)
     }
 
@@ -210,6 +296,7 @@ impl VaultService {
         if let Some(k) = &self.known {
             k.set(path, hash.as_str());
         }
+        self.links.rebuild_for(path, vec![]);
         Ok(hash)
     }
 
@@ -223,6 +310,10 @@ impl VaultService {
                 .map_err(VaultError::Io)?;
         }
         Ok(hash)
+    }
+
+    pub fn link_index(&self) -> Arc<LinkIndex> {
+        self.links.clone()
     }
 }
 
@@ -388,6 +479,48 @@ mod tests {
     }
 
     #[test]
+
+#[test]
+fn wikilink_index_rebuilds_on_read() {
+    let (svc, _d) = svc_with_notes(&[
+        ("a.md", "see [[B]] and [[C]] end"),
+        ("b.md", "leaf"),
+    ]);
+    svc.read_note("a.md").unwrap();
+    let out = svc.link_index().outgoing_for("a.md");
+    let targets: Vec<&str> = out.iter().map(|l| l.target.as_str()).collect();
+    assert_eq!(targets, vec!["B", "C"]);
+}
+
+#[test]
+fn backlinks_inverse_resolution() {
+    let (svc, _d) = svc_with_notes(&[
+        ("a.md", "see [[B]]"),
+        ("b.md", "also [[B]] and [[C]]"),
+        ("c.md", "[B] but not wikilink"),
+        ("target.md", "leaf"),
+    ]);
+    svc.read_note("a.md").unwrap();
+    svc.read_note("b.md").unwrap();
+    svc.read_note("c.md").unwrap();
+    let mut bl = svc.link_index().backlinks("B");
+    bl.sort_by(|a, b| a.0.cmp(&b.0));
+    let paths: Vec<&str> = bl.iter().map(|(p, _)| p.as_str()).collect();
+    assert_eq!(paths, vec!["a.md", "b.md"]);
+}
+
+#[test]
+fn wikilink_index_updates_on_save() {
+    let (svc, _d) = svc_with_notes(&[("a.md", "[[OLD]]")]);
+    svc.read_note("a.md").unwrap();
+    assert_eq!(svc.link_index().outgoing_for("a.md").len(), 1);
+    let (_, h) = svc.read_note("a.md").unwrap();
+    svc.save_note("a.md", "[[NEW]]", h.as_str()).unwrap();
+    let out = svc.link_index().outgoing_for("a.md");
+    let targets: Vec<&str> = out.iter().map(|l| l.target.as_str()).collect();
+    assert_eq!(targets, vec!["NEW"]);
+}
+
     fn atomic_write_leaves_no_tmp_on_success() {
         let (svc, dir) = svc_with_notes(&[("n.md", "v1\n")]);
         let (_, h) = svc.read_note("n.md").unwrap();

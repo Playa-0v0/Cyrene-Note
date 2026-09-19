@@ -11,6 +11,7 @@
  */
 import { create } from 'zustand'
 import { commands, type AppError } from '../lib/bindings'
+import { useVaultStore } from './vaultStore'
 
 export type DocStatus = 'clean' | 'dirty' | 'saving' | 'conflict'
 
@@ -45,6 +46,11 @@ interface DocState {
    * 再按磁盘内容重载。返回新内容（null = 失败）。
    */
   discardLocalAndReload: (localContent: string) => Promise<string | null>
+  /**
+   * wikilink 目标解析：path 完全匹配/唯一 basename 匹配返回 found；
+   * 多匹配返回 ambiguous=true；无匹配 found=false。
+   */
+  resolveAndOpenWikilink: (target: string) => Promise<{ found: boolean; path?: string; ambiguous?: boolean }>
   clearError: () => void
 }
 
@@ -142,6 +148,26 @@ export const useDocStore = create<DocState>((set, get) => ({
     // 2) 重读磁盘为新的 base
     const content = await get().openDoc(path)
     return content
+  },
+
+  /**
+   * 解析 wikilink 目标。契约 §7.1 5 种形式 + §7.3 留待 v2 的裁决项。
+   * v1 实现：path 完全相等 → 打开；唯一 basename → 打开；多匹配/无匹配 → 返回 null 让 caller 提示。
+   */
+  resolveAndOpenWikilink: async (target: string): Promise<{ found: boolean; path?: string; ambiguous?: boolean }> => {
+    const all = useVaultStore.getState().notes
+    if (all.length === 0) return { found: false }
+    const exact = all.find((n) => n.path === target)
+    if (exact) return { found: true, path: exact.path }
+    const basename = target.split('/').pop()!
+    const stem = basename.replace(/\.[^.]+$/, '')
+    const matches = all.filter((n) => {
+      const nStem = n.path.split('/').pop()!.replace(/\.[^.]+$/, '')
+      return nStem === stem
+    })
+    if (matches.length === 1) return { found: true, path: matches[0].path }
+    if (matches.length > 1) return { found: false, ambiguous: true }
+    return { found: false }
   },
 
   clearError: () => set({ lastError: null }),

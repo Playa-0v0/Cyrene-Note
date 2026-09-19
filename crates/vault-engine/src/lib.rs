@@ -7,5 +7,5 @@ pub mod service;
 pub mod watcher;
 
 pub use history::HistoryStore;
-pub use service::{NoteSummary, VaultService};
+pub use service::{LinkIndex, NoteSummary, NoteDocument, VaultService};
 pub use watcher::{ExternalChange, KnownVersions, WatcherService};

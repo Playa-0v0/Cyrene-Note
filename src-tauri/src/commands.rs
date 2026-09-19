@@ -7,7 +7,7 @@ use tauri::State;
 use tauri_specta::Event;
 
 use crate::dto::{
-    AppError, CreateNoteRequest, DiscardLocalRequest, NoteSummaryDto, ReadNoteResponse,
+    AppError, BacklinkDto, CreateNoteRequest, DiscardLocalRequest, NoteSummaryDto, ReadNoteResponse,
     SaveNoteRequest, SaveNoteResponse, VaultStatus,
 };
 use crate::events::{FileChanged, TreeChanged};
@@ -102,12 +102,26 @@ pub fn notes_read(state: State<'_, AppState>, path: String) -> Result<ReadNoteRe
     let svc = state.vault.lock().map_err(|_| AppError::Io {
         detail: "状态锁中毒".into(),
     })?;
-    let (content, hash) = svc.read_note(&path)?;
-    Ok(ReadNoteResponse {
-        path,
-        content,
-        content_hash: hash.as_str().to_string(),
-    })
+    let doc = svc.read_note_full(&path)?;
+    Ok(ReadNoteResponse::from(doc))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn notes_backlinks(state: State<'_, AppState>, target: String) -> Result<Vec<BacklinkDto>, AppError> {
+    let svc = state.vault.lock().map_err(|_| AppError::Io {
+        detail: "状态锁中毒".into(),
+    })?;
+    Ok(svc
+        .backlinks(&target)
+        .into_iter()
+        .map(|(source_path, link)| BacklinkDto {
+            source_path,
+            target: link.target,
+            heading: link.heading,
+            alias: link.alias,
+        })
+        .collect())
 }
 
 #[tauri::command]

@@ -9,6 +9,7 @@ export const commands = {
 	vaultStatus: () => typedError<VaultStatus, AppError>(__TAURI_INVOKE("vault_status")),
 	notesList: () => typedError<NoteSummaryDto[], AppError>(__TAURI_INVOKE("notes_list")),
 	notesRead: (path: string) => typedError<ReadNoteResponse, AppError>(__TAURI_INVOKE("notes_read", { path })),
+	notesBacklinks: (target: string) => typedError<BacklinkDto[], AppError>(__TAURI_INVOKE("notes_backlinks", { target })),
 	notesSave: (req: SaveNoteRequest) => typedError<SaveNoteResponse, AppError>(__TAURI_INVOKE("notes_save", { req })),
 	notesCreate: (req: CreateNoteRequest) => typedError<SaveNoteResponse, AppError>(__TAURI_INVOKE("notes_create", { req })),
 	/**
@@ -27,6 +28,13 @@ export const events = {
 /* Types */
 /**  统一 IPC 错误。领域/IO 错误的具体类型永不穿越 IPC 边界。 */
 export type AppError = { type: "NotFound"; path: string } | { type: "AlreadyExists"; path: string } | { type: "Conflict"; path: string; expected: string; actual: string } | { type: "InvalidEncoding"; path: string } | { type: "PathOutsideVault"; detail: string } | { type: "VaultNotOpen" } | { type: "Io"; detail: string };
+
+export type BacklinkDto = {
+	source_path: string,
+	target: string,
+	heading: string | null,
+	alias: string | null,
+};
 
 export type CreateNoteRequest = {
 	path: string,
@@ -64,6 +72,8 @@ export type ReadNoteResponse = {
 	content: string,
 	/**  原始磁盘字节 SHA-256（保存时作为 expected_hash 传回） */
 	content_hash: string,
+	/**  该笔记内的 wikilink 出链（target + heading + alias） */
+	links: WikiLinkDto[],
 };
 
 export type SaveNoteRequest = {
@@ -87,6 +97,15 @@ export type VaultStatus = {
 	open: boolean,
 	/**  Vault 根的绝对路径（未打开为 None） */
 	root: string | null,
+};
+
+export type WikiLinkDto = {
+	target: string,
+	heading: string | null,
+	alias: string | null,
+	/**  起始/结束字节偏移（文档内） */
+	span_from: number,
+	span_to: number,
 };
 
 /* Tauri Specta runtime */
