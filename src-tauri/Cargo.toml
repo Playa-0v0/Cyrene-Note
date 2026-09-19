@@ -4,6 +4,7 @@ description = "Cyrene Notes 桌面壳：Tauri commands/events、窗口、IPC DTO
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+default-run = "cyrene-note-app"
 
 [lib]
 name = "cyrene_note_app_lib"
