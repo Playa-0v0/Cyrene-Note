@@ -1,0 +1,36 @@
+[workspace]
+resolver = "2"
+members = ["crates/vault-core", "crates/vault-engine", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+vault-core = { path = "crates/vault-core" }
+vault-engine = { path = "crates/vault-engine" }
+
+# 领域层：零 IO、零 async。这里出现的每个依赖都要三思。
+sha2 = "0.10"
+thiserror = "2"
+
+# 引擎层
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.37", features = ["bundled"] }
+notify = "8"
+walkdir = "2"
+zstd = "0.13"
+
+# 应用层
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
+specta = "=2.0.0-rc.25"
+specta-typescript = "=0.0.12"
+
+[profile.release]
+lto = true
+codegen-units = 1

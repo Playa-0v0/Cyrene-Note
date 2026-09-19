@@ -1,0 +1,28 @@
+[package]
+name = "cyrene-note-app"
+description = "Cyrene Notes 桌面壳：Tauri commands/events、窗口、IPC DTO 映射。业务逻辑不进这一层"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "cyrene_note_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+vault-core.workspace = true
+vault-engine.workspace = true
+tauri.workspace = true
+tauri-plugin-dialog.workspace = true
+tauri-specta.workspace = true
+specta.workspace = true
+specta-typescript.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[features]
+# specta 导出仅用于 dev 时生成 bindings.ts
+specta-export = []
