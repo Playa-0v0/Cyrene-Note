@@ -188,6 +188,23 @@ impl VaultService {
         Ok(notes)
     }
 
+    /// 全量重建 link index：遍历所有笔记，读全文、跑 wikilink 扫描器。
+    /// vault_open 后调用一次，覆盖"从未打开过的笔记"——这些笔记没机会
+    /// read_note，索引里就不会有它们的出链，backlinks 自然会缺。
+    pub fn rebuild_all_links(&self) -> VaultResult<()> {
+        let notes = self.list_notes()?;
+        for note in notes {
+            let full = note.path.join(self.root()?);
+            if let Ok(bytes) = std::fs::read(&full) {
+                if let Ok(loaded) = normalize::load(&bytes, note.path.as_str()) {
+                    let links = vault_core::wikilink::extract_links(&loaded.content);
+                    self.links.rebuild_for(note.path.as_str(), links);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// 读取笔记：归一化管线 + 原始字节 hash。
     /// Snapshot-on-sight：读到的版本进 history（source=open），known 表刷新，
     /// 同时扫描 wikilink 重建该路径的出链索引。
@@ -481,7 +498,24 @@ mod tests {
     #[test]
 
 #[test]
-fn wikilink_index_rebuilds_on_read() {
+    fn rebuild_all_links_works_on_unopened_notes() {
+        // 关键场景：Vault 里有个笔记用户从未打开过，索引里没有它的出链，
+        // 反向链接就会缺。rebuild_all_links 必须能覆盖这种笔记。
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("a.md"), "see [[Target]]\n").unwrap();
+        fs::write(dir.path().join("Target.md"), "target body\n").unwrap();
+        let mut svc = VaultService::new();
+        svc.open(dir.path()).unwrap();
+        // 故意不 read_note；rebuild 前 backlinks 为空
+        assert!(svc.backlinks("Target").is_empty());
+        svc.rebuild_all_links().unwrap();
+        let bl = svc.backlinks("Target");
+        assert_eq!(bl.len(), 1);
+        assert_eq!(bl[0].0, "a.md");
+    }
+
+#[test]
+    fn wikilink_index_rebuilds_on_read() {
     let (svc, _d) = svc_with_notes(&[
         ("a.md", "see [[B]] and [[C]] end"),
         ("b.md", "leaf"),

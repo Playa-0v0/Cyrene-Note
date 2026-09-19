@@ -66,6 +66,12 @@ pub fn vault_open(
         detail: "状态锁中毒".into(),
     })? = Some(watcher);
 
+    // 全量建反向链接索引：覆盖从未打开过的笔记
+    if let Err(e) = svc.rebuild_all_links() {
+        // 索引失败不应阻止 vault 打开；用户随时打开笔记会补建
+        eprintln!("[cyrene-note] rebuild_all_links 失败: {e}");
+    }
+
     Ok(VaultStatus {
         open: true,
         root: Some(root),

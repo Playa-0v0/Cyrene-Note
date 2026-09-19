@@ -23,6 +23,7 @@ import { events, commands } from '../lib/bindings'
 import { useDocStore, describeError } from '../stores/docStore'
 import { livePreview } from './livePreview'
 import { wikilinkDecorations, wikilinkClick } from './wikilink'
+import { BacklinksPanel } from '../features/backlinks/BacklinksPanel'
 import './livePreview.css'
 
 const AUTOSAVE_DELAY_MS = 800
@@ -134,6 +135,7 @@ export function Editor() {
     <div className={`editor-host status-${status}`}>
       <div ref={hostRef} className="cm-host" />
       {status === 'conflict' && <ConflictBanner />}
+      <BacklinksPanel />
     </div>
   )
 }

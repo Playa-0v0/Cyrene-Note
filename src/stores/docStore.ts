@@ -10,7 +10,7 @@
  * 唯一通道是函数返回值 → CM6 dispatch。
  */
 import { create } from 'zustand'
-import { commands, type AppError } from '../lib/bindings'
+import { commands, type AppError, type BacklinkDto } from '../lib/bindings'
 import { useVaultStore } from './vaultStore'
 
 export type DocStatus = 'clean' | 'dirty' | 'saving' | 'conflict'
@@ -29,6 +29,8 @@ interface DocState {
   /** 冲突详情（status === 'conflict' 时非空） */
   conflict: { expected: string; actual: string } | null
   lastError: string | null
+  /** 反向链接列表（来自 engine LinkIndex） */
+  backlinks: BacklinkDto[]
 
   /** 成功返回文档内容（交给编辑器），失败返回 null 并置 lastError */
   openDoc: (path: string) => Promise<string | null>
@@ -51,6 +53,8 @@ interface DocState {
    * 多匹配返回 ambiguous=true；无匹配 found=false。
    */
   resolveAndOpenWikilink: (target: string) => Promise<{ found: boolean; path?: string; ambiguous?: boolean }>
+  /** 内部：从 engine 拉取当前文档的反向链接，写入 store */
+  _refreshBacklinks: (path: string) => Promise<void>
   clearError: () => void
 }
 
@@ -79,6 +83,7 @@ export const useDocStore = create<DocState>((set, get) => ({
   status: 'clean',
   conflict: null,
   lastError: null,
+  backlinks: [],
 
   openDoc: async (path) => {
     const result = await commands.notesRead(path)
@@ -90,6 +95,8 @@ export const useDocStore = create<DocState>((set, get) => ({
         conflict: null,
         lastError: null,
       })
+      // 后台拉反向链接（失败不影响主流程）
+      void get()._refreshBacklinks(result.data.path)
       return result.data.content
     }
     set({ lastError: describeError(result.error) })
@@ -103,6 +110,8 @@ export const useDocStore = create<DocState>((set, get) => ({
     const result = await commands.notesSave({ path, content, expected_hash: baseHash })
     if (result.status === 'ok') {
       set({ baseHash: result.data.new_content_hash, status: 'clean' })
+      // 保存后被链接关系可能变了（如本笔记里删了一个 wikilink）——刷新一次
+      void get()._refreshBacklinks(result.data.path)
       return true
     }
     if (result.error.type === 'Conflict') {
@@ -168,6 +177,15 @@ export const useDocStore = create<DocState>((set, get) => ({
     if (matches.length === 1) return { found: true, path: matches[0].path }
     if (matches.length > 1) return { found: false, ambiguous: true }
     return { found: false }
+  },
+
+  _refreshBacklinks: async (path: string) => {
+    const result = await commands.notesBacklinks(path)
+    if (result.status === 'ok') {
+      set({ backlinks: result.data })
+    } else {
+      set({ backlinks: [] })
+    }
   },
 
   clearError: () => set({ lastError: null }),
