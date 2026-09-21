@@ -6,12 +6,15 @@
  * - 缓冲区真相在 CodeMirror（editorContent 不进这里）
  * - 这里只放协调态：dirty / saving / conflict
  *
- * openDoc 返回归一化内容，由编辑器组件接住——内容不落 React state，
- * 唯一通道是函数返回值 → CM6 dispatch。
+ * 文档会话（PR 1 重构）：
+ * - sessionId/generation/revision 三层身份绑定到所有跨异步操作
+ * - openDoc/saveDoc/onExternalChange 全部校验 sessionId 防过期
+ * - clean = revision === savedRevision，存活的输入永远能正确清 dirty
  */
 import { create } from 'zustand'
 import { commands, type AppError, type BacklinkDto } from '../lib/bindings'
 import { useVaultStore } from './vaultStore'
+import { newSessionId, newGeneration, type SaveSnapshot } from '../docSession'
 
 export type DocStatus = 'clean' | 'dirty' | 'saving' | 'conflict'
 
@@ -32,11 +35,25 @@ interface DocState {
   /** 反向链接列表（来自 engine LinkIndex） */
   backlinks: BacklinkDto[]
 
+  // ── 文档会话（PR 1 新增） ─────────────────────────
+  /** 当前文档会话；切换或重开都重新生成 */
+  sessionId: number | null
+  /** 进入保存路径（fire save）时递增；旧 save 返回若 generation 变了 → 丢弃 */
+  saveGeneration: number
+  /** CM6 用户输入产生的缓冲版本（save 落盘后对齐 savedRevision） */
+  revision: number
+  /** 上次成功保存的 revision；clean ⟺ revision === savedRevision */
+  savedRevision: number
+
   /** 成功返回文档内容（交给编辑器），失败返回 null 并置 lastError */
   openDoc: (path: string) => Promise<string | null>
   /** 保存：content 从 CM6 buffer 值传入 */
   saveDoc: (content: string) => Promise<boolean>
-  /** CM6 update listener 报告缓冲区变化 */
+  /** 暴露 editor 在 schedule 时用：拿到当下会话快照用于捕获 immutable save 上下文 */
+  currentSession: () => number | null
+  /** 旧 save 返回时校验 generation，false → result 视为过期 */
+  isCurrentGeneration: (gen: number) => boolean
+  /** CM6 update listener 报告缓冲区变化（用户输入） */
   markDirty: () => void
   /**
    * watcher 的 file-changed 事件到达时调用。
@@ -84,9 +101,25 @@ export const useDocStore = create<DocState>((set, get) => ({
   conflict: null,
   lastError: null,
   backlinks: [],
+  // PR 1：会话初值
+  sessionId: null,
+  saveGeneration: 0,
+  revision: 0,
+  savedRevision: 0,
 
   openDoc: async (path) => {
+    // 1) 生成新会话——旧会话的 pending save 会自动失效
+    const newId = newSessionId()
+    set({
+      sessionId: newId,
+      saveGeneration: 0,
+      revision: 0,
+      savedRevision: 0,
+      backlinks: [],
+    })
     const result = await commands.notesRead(path)
+    // 2) read 期间用户可能切了文档：再校验一次会话未变
+    if (get().sessionId !== newId) return null
     if (result.status === 'ok') {
       set({
         path: result.data.path,
@@ -94,23 +127,52 @@ export const useDocStore = create<DocState>((set, get) => ({
         status: 'clean',
         conflict: null,
         lastError: null,
+        // 重新计算 revision（保证 clean 立刻成立）
+        revision: 0,
+        savedRevision: 0,
       })
-      // 后台拉反向链接（失败不影响主流程）
       void get()._refreshBacklinks(result.data.path)
       return result.data.content
     }
-    set({ lastError: describeError(result.error) })
+    // 失败：回滚会话/路径，让 UI 保持在"无文档"状态
+    set({ path: null, baseHash: null, sessionId: null, lastError: describeError(result.error) })
     return null
   },
 
   saveDoc: async (content) => {
-    const { path, baseHash, status } = get()
-    if (!path || !baseHash || status === 'saving' || status === 'conflict') return false
-    set({ status: 'saving', lastError: null })
-    const result = await commands.notesSave({ path, content, expected_hash: baseHash })
+    const { path, baseHash, status, sessionId, revision } = get()
+    if (!path || !baseHash || !sessionId) return false
+    if (status === 'saving' || status === 'conflict') return false
+    // 取下当下会话与本次 revision；Editor 拿到这个 snap 后再 fire save
+    // （实际 fire 在 Editor 内：saveDoc 接收 snap 而不是裸 content）
+    const snap: SaveSnapshot = {
+      sessionId,
+      generation: newGeneration(),
+      path,
+      baseHash,
+      content,
+      revision,
+    }
+    set({ status: 'saving', lastError: null, saveGeneration: snap.generation })
+    const result = await commands.notesSave({
+      path: snap.path,
+      content: snap.content,
+      expected_hash: snap.baseHash,
+    })
+    // 关键校验：保存结果到达时如果会话已换 / generation 已变 → 丢弃
+    const cur = get()
+    if (cur.sessionId !== snap.sessionId || cur.saveGeneration !== snap.generation) {
+      // 过期结果：不动状态；新会话的 save 已经接管
+      return false
+    }
     if (result.status === 'ok') {
       set({ baseHash: result.data.new_content_hash, status: 'clean' })
-      // 保存后被链接关系可能变了（如本笔记里删了一个 wikilink）——刷新一次
+      // 仅当没有更新过的 revision 时才算 clean；用户如果保存后又输入了 revision > saved，
+      // 仍然 dirty（不能被旧 save 抹掉）
+      const fresh = get()
+      if (fresh.revision === snap.revision) {
+        set({ savedRevision: snap.revision })
+      }
       void get()._refreshBacklinks(result.data.path)
       return true
     }
@@ -125,14 +187,36 @@ export const useDocStore = create<DocState>((set, get) => ({
     return false
   },
 
+  currentSession: () => get().sessionId,
+
+  isCurrentGeneration: (gen) => get().saveGeneration === gen,
+
   markDirty: () => {
-    if (useDocStore.getState().status === 'clean') set({ status: 'dirty' })
+    const s = get()
+    if (!s.sessionId || !s.path) return // 没有打开文档时不计入
+    const next = s.revision + 1
+    set({ revision: next })
+    // 状态升级：
+    // - clean → dirty
+    // - saving → dirty（取消正在进行的 save：旧结果返回时 generation 必然不匹配；
+    //   旧的 savedRevision 不变，dirty 保留到下次 save）
+    // - dirty/conflict → 不变
+    if (s.status === 'clean' || s.status === 'saving') {
+      set({ status: 'dirty', saveGeneration: s.saveGeneration + 1 })
+    }
   },
 
   onExternalChange: (path, hash, content) => {
-    const { path: cur, status } = get()
+    const { path: cur, status, sessionId } = get()
+    if (!sessionId) return { kind: 'ignore' }
     if (cur !== path) return { kind: 'ignore' } // 未打开的文档：watcher 只更新索引，UI 不动
-    if (content === null) return { kind: 'deleted' }
+    if (content === null) {
+      // 外部删除
+      if (status !== 'conflict') {
+        set({ status: 'clean', conflict: null })
+      }
+      return { kind: 'deleted' }
+    }
 
     if (status === 'clean' || status === 'saving') {
       // 干净缓冲（或保存中——保存结果会覆盖这里，冲突路径由 save 响应处理）：
@@ -153,17 +237,27 @@ export const useDocStore = create<DocState>((set, get) => ({
     const { path, status } = get()
     if (!path || status !== 'conflict') return null
     // 1) LOCAL 先落 history（契约 §4.5：丢弃前必须已入恢复存储）
-    await commands.notesDiscardLocal({ path, content: localContent })
+    const snapshot = await commands.notesDiscardLocal({ path, content: localContent })
+    if (snapshot.status !== 'ok') {
+      // history snapshot 失败：保留 LOCAL + 冲突态，不 reload
+      set({ lastError: `保留本地修改失败（已保护你的内容）：${describeError(snapshot.error)}` })
+      return null
+    }
     // 2) 重读磁盘为新的 base
     const content = await get().openDoc(path)
     return content
   },
 
-  /**
-   * 解析 wikilink 目标。契约 §7.1 5 种形式 + §7.3 留待 v2 的裁决项。
-   * v1 实现：path 完全相等 → 打开；唯一 basename → 打开；多匹配/无匹配 → 返回 null 让 caller 提示。
-   */
-  resolveAndOpenWikilink: async (target: string): Promise<{ found: boolean; path?: string; ambiguous?: boolean }> => {
+  _refreshBacklinks: async (path) => {
+    const result = await commands.notesBacklinks(path)
+    if (result.status === 'ok') {
+      set({ backlinks: result.data })
+    } else {
+      set({ backlinks: [] })
+    }
+  },
+
+  resolveAndOpenWikilink: async (target) => {
     const all = useVaultStore.getState().notes
     if (all.length === 0) return { found: false }
     const exact = all.find((n) => n.path === target)
@@ -177,15 +271,6 @@ export const useDocStore = create<DocState>((set, get) => ({
     if (matches.length === 1) return { found: true, path: matches[0].path }
     if (matches.length > 1) return { found: false, ambiguous: true }
     return { found: false }
-  },
-
-  _refreshBacklinks: async (path: string) => {
-    const result = await commands.notesBacklinks(path)
-    if (result.status === 'ok') {
-      set({ backlinks: result.data })
-    } else {
-      set({ backlinks: [] })
-    }
   },
 
   clearError: () => set({ lastError: null }),

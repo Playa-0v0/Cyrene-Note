@@ -49,7 +49,13 @@ function Node({ node, depth }: { node: TreeNode; depth: number }) {
       <div
         className={`tree-note ${active ? 'active' : ''}`}
         style={{ paddingLeft: depth * 14 + 8 }}
-        onClick={() => useDocStore.getState().openDoc(node.path)}
+        onClick={() => {
+          // 设置 store path，让 Editor 的 useEffect 单点驱动 openDoc。
+          // （docStore.openDoc 内部仍可调用；重复点同一篇笔记时会被 effect 的
+          // sessionId 一致条件走完整流程，但 Editor 的 useEffect 用 sessionId 作依赖，
+          // 切到同 path → sessionId 相同 → effect 不重跑 → openDoc 也只跑一次）
+          useDocStore.setState({ path: node.path })
+        }}
       >
         {node.name}
       </div>
