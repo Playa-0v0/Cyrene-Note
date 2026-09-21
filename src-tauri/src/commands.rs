@@ -167,20 +167,20 @@ pub fn notes_create(
     })
 }
 
-/// 冲突抢救：把即将被丢弃的本地版本写入 history（source=conflict-discard），
-/// 然后前端再执行"重新读取"。契约 §4.5：丢弃前必须已入恢复存储。
+/// 冲突抢救 + 原子化重读（PR 2 P0-3）。
+/// 1. snapshot LOCAL 到 history（source=conflict-discard）——失败则整条 Err
+/// 2. 重新读取磁盘当前内容
+/// 单次调用保证：snapshot 失败时 LOCAL 不被丢弃、磁盘内容不会被错读
+/// （前端拿到 Err 时缓冲区不变，状态机仍为 conflict）
 #[tauri::command]
 #[specta::specta]
-pub fn notes_discard_local(
+pub fn notes_discard_local_and_reload(
     state: State<'_, AppState>,
     req: DiscardLocalRequest,
-) -> Result<SaveNoteResponse, AppError> {
+) -> Result<ReadNoteResponse, AppError> {
     let svc = state.vault.lock().map_err(|_| AppError::Io {
         detail: "状态锁中毒".into(),
     })?;
-    let hash = svc.discard_local(&req.path, &req.content)?;
-    Ok(SaveNoteResponse {
-        path: req.path,
-        new_content_hash: hash.as_str().to_string(),
-    })
+    let doc = svc.discard_local_and_reload(&req.path, &req.content)?;
+    Ok(ReadNoteResponse::from(doc))
 }

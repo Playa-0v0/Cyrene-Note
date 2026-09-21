@@ -16,7 +16,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
             commands::notes_backlinks,
             commands::notes_save,
             commands::notes_create,
-            commands::notes_discard_local,
+            commands::notes_discard_local_and_reload,
         ])
         .events(collect_events![events::TreeChanged, events::FileChanged])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)

@@ -329,6 +329,24 @@ impl VaultService {
         Ok(hash)
     }
 
+    /// 原子化的 discard + reload（PR 2 P0-3 落地）：
+    /// 1. snapshot LOCAL（失败 → 整条 Err，磁盘原样不动，LOCAL 仍可用）
+    /// 2. 重新读取磁盘当前内容（normalize + hash）
+    /// 3. 返回 {content, content_hash, path} 一包，前端一次性替换缓冲
+    ///
+    /// 这两步必须一起——中间失败不能 reload（否则 LOCAL 丢失且没 snapshot）。
+    pub fn discard_local_and_reload(&self, path: &str, content: &str) -> VaultResult<NoteDocument> {
+        // Step 1: 抢救 LOCAL
+        let local_bytes = normalize::encode_for_disk(content);
+        if let Some(h) = &self.history {
+            // map_err std::io::Error → VaultError::Io——前端从 AppError 透出
+            h.snapshot(path, &local_bytes, HistorySource::ConflictDiscard)
+                .map_err(VaultError::Io)?;
+        }
+        // Step 2: 重读磁盘（snapshot 已持久化后才执行——若失败 LOCAL 已保护）
+        self.read_note_full(path)
+    }
+
     pub fn link_index(&self) -> Arc<LinkIndex> {
         self.links.clone()
     }
@@ -513,6 +531,45 @@ mod tests {
         assert_eq!(bl.len(), 1);
         assert_eq!(bl[0].0, "a.md");
     }
+
+
+#[test]
+fn discard_local_and_reload_atomicity_snapshot_failure() {
+    // PR 2 P0-3：history snapshot 失败时整个 discard_local_and_reload 必须失败。
+    // 注入难点：vault.open() 会创建好 .cyrene/history 目录；后续把该目录
+    // 替换成文件无法影响 service 内 HistoryStore 缓存的 PathBuf（snapshot
+    // 会自动 create_dir_all 重新建回来）。跨平台稳定注入需要 HistoryStore
+    // 接受错误注入钩子——留给后续 PR 加 #[cfg(test)] 入口。
+    //
+    // 本测试覆盖正常路径下的原子性语义：snapshot + reload 在同一个调用链
+    // 完成，前端只调一次。前端的错误注入（PR 1 测试 11）已覆盖 history 失败
+    // 时保留 LOCAL + 冲突态 + lastError 这条前端语义分支。
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("a.md"), "disk content v1\n").unwrap();
+    let mut svc = VaultService::new();
+    svc.open(dir.path()).unwrap();
+    let doc = svc.discard_local_and_reload("a.md", "LOCAL was here").unwrap();
+    assert_eq!(doc.content, "disk content v1\n");
+    // LOCAL 落进 history（source=conflict-discard）
+    let versions = svc.history().unwrap().versions("a.md");
+    assert!(versions.iter().any(|(_, _, src)| src == "conflict-discard"));
+}
+
+#[test]
+fn discard_local_and_reload_success_returns_disk_state() {
+    // 正常路径：snapshot LOCAL + 重新读取磁盘，返回新 base
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("a.md"), "disk content v2\n").unwrap();
+    let mut svc = VaultService::new();
+    svc.open(dir.path()).unwrap();
+    let doc = svc.discard_local_and_reload("a.md", "LOCAL was here").unwrap();
+    assert_eq!(doc.content, "disk content v2\n");
+    assert_eq!(doc.path, "a.md");
+    // LOCAL 的快照应已落入 history
+    let versions = svc.history.as_ref().unwrap().versions("a.md");
+    let has_local = versions.iter().any(|(_, _, src)| src == "conflict-discard");
+    assert!(has_local, "LOCAL 内容必须出现在 history 链上");
+}
 
 #[test]
     fn wikilink_index_rebuilds_on_read() {

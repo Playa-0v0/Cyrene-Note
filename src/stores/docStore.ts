@@ -234,18 +234,30 @@ export const useDocStore = create<DocState>((set, get) => ({
   },
 
   discardLocalAndReload: async (localContent) => {
-    const { path, status } = get()
-    if (!path || status !== 'conflict') return null
-    // 1) LOCAL 先落 history（契约 §4.5：丢弃前必须已入恢复存储）
-    const snapshot = await commands.notesDiscardLocal({ path, content: localContent })
-    if (snapshot.status !== 'ok') {
-      // history snapshot 失败：保留 LOCAL + 冲突态，不 reload
-      set({ lastError: `保留本地修改失败（已保护你的内容）：${describeError(snapshot.error)}` })
-      return null
+    const { path, status, sessionId } = get()
+    if (!path || status !== 'conflict' || !sessionId) return null
+    // PR 2（P0-3）：原子化 IPC —— snapshot + reload 在 Rust 端成一个事务。
+    // snapshot 失败时整条 Err，LOCAL 保留；reload 也返回新内容。
+    // sessionId 校验：旧会话的等待结果不会污染新会话（与 saveDoc 同样处理）。
+    const mySession = sessionId
+    const result = await commands.notesDiscardLocalAndReload({ path, content: localContent })
+    if (get().sessionId !== mySession) return null // 会话已换，丢弃结果
+    if (result.status === 'ok') {
+      const doc = result.data
+      // 一次性吃下：磁盘内容 + hash + 新的 base
+      set({
+        path: doc.path,
+        baseHash: doc.content_hash,
+        status: 'clean',
+        conflict: null,
+        revision: 0,
+        savedRevision: 0,
+      })
+      return doc.content
     }
-    // 2) 重读磁盘为新的 base
-    const content = await get().openDoc(path)
-    return content
+    // snapshot 或 reload 失败：保留 LOCAL + 冲突态 + lastError
+    set({ lastError: `保留本地修改失败（已保护你的内容）：${describeError(result.error)}` })
+    return null
   },
 
   _refreshBacklinks: async (path) => {
