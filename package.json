@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "tauri": "tauri",
+    "tauri": "tauri dev --no-watch --no-dev-server-wait",
     "tauri:dev": "tauri dev --no-watch --no-dev-server-wait"
   },
   "dependencies": {
