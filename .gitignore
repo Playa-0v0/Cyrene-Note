@@ -32,5 +32,8 @@ target/
 # Tauri generated
 src-tauri/gen/schemas/
 
+# 字体文件（postinstall 从 Adobe release 下载，不进版本库）
+public/fonts/
+
 # Playwright MCP 本地调试产物
 .playwright-mcp/

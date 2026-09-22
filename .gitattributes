@@ -5,5 +5,3 @@
 *.png binary
 *.ico binary
 *.lock text eol=lf
-public/fonts/**/*.otf filter=lfs diff=lfs merge=lfs -text
-public/fonts/** !text !filter !merge !diff

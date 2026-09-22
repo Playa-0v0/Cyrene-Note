@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "tauri": "tauri dev --no-watch --no-dev-server-wait",
-    "tauri:dev": "tauri dev --no-watch --no-dev-server-wait"
+    "tauri:dev": "tauri dev --no-watch --no-dev-server-wait",
+    "postinstall": "node scripts/postinstall.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",
