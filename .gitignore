@@ -31,3 +31,6 @@ target/
 
 # Tauri generated
 src-tauri/gen/schemas/
+
+# Playwright MCP 本地调试产物
+.playwright-mcp/
