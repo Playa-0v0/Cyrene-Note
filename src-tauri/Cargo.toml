@@ -16,7 +16,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 vault-core.workspace = true
 vault-engine.workspace = true
-tauri.workspace = true
+tauri = { workspace = true, features = ["protocol-asset"] }
 tauri-plugin-dialog.workspace = true
 tauri-specta.workspace = true
 specta.workspace = true

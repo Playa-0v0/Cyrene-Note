@@ -15,6 +15,9 @@ dist-ssr
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+.trae/
+# 外部素材源（IconPark 图标库，clone 来的，本地保留不进版本库）
+.assets/
 .idea
 .DS_Store
 *.suo

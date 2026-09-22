@@ -1,0 +1,185 @@
+/* Welcome —— 主区域启动画面（未打开 Vault 时） */
+
+.welcome {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.welcome-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  max-width: 420px;
+  width: 100%;
+  padding: var(--space-lg) var(--space-md);
+}
+
+/* 品牌标记：粉色圆底 */
+.welcome-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: var(--space-sm);
+  border-radius: var(--radius-full);
+  background: var(--pink-50);
+  color: var(--pink-500);
+}
+
+.welcome-title {
+  font: var(--text-h3);
+  color: var(--text-strong);
+}
+
+.welcome-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+  margin-bottom: var(--space-md);
+}
+
+.welcome-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.welcome-hint {
+  margin-top: var(--space-md);
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.welcome-card.wide {
+  max-width: 720px;
+}
+
+/* ---------- 最近仓库卡片网格 ---------- */
+
+.welcome-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-sm);
+  width: 100%;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+/* 横版圆角卡片（4:3）：封面图/标题预览 + 粉色名条 */
+.vault-card {
+  display: flex;
+  flex-direction: column;
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: var(--bg-primary);
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  font-family: var(--font-sans);
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
+}
+
+.vault-card:hover:not(:disabled) {
+  border-color: var(--pink-400);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 8%);
+}
+
+.vault-card:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* 上：封面图或标题预览 */
+.vc-preview {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  overflow: hidden;
+}
+
+/* 封面图：铺满整个预览区（盖过 padding） */
+.vc-cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 无封面时显示标题：往下排、不挤压，超出 3 行截断 */
+.vc-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.7;
+  color: var(--text-strong);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.vc-empty {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* 下：粉色名条（仓库名 + 上次打开时间），固定高度保证名字放得下 */
+.vc-label {
+  flex: 0 0 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 12px;
+  background: linear-gradient(135deg, var(--pink-500), var(--pink-400));
+  color: #fff;
+}
+
+.vc-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vc-time {
+  flex-shrink: 0;
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+/* 打开/新建其他仓库：虚线空卡片 */
+.vc-add {
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  border-style: dashed;
+  color: var(--text-faint);
+}
+
+.vc-add:hover:not(:disabled) {
+  border-color: var(--pink-400);
+  background: var(--pink-50);
+  color: var(--pink-500);
+}
+
+.vc-add-text {
+  font-size: 11.5px;
+}

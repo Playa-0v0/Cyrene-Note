@@ -146,3 +146,41 @@ pub struct DiscardLocalRequest {
     /// 即将被丢弃的编辑器缓冲内容
     pub content: String,
 }
+
+#[derive(Debug, Clone, Deserialize, Type)]
+pub struct RenameNoteRequest {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Type)]
+pub struct DeleteNoteRequest {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Type)]
+pub struct RenameDirRequest {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Type)]
+pub struct DeleteDirRequest {
+    pub dir: String,
+}
+
+/// rename/delete 的结果：受影响路径映射 + 提示性原因。
+/// 前端据此更新打开的编辑器（旧路径 → 新路径）或关闭已删的缓冲区。
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct PathChangesResponse {
+    /// 旧路径 → 新路径（delete 时值为空）
+    pub moved: Vec<PathMove>,
+    /// 被删除的路径
+    pub deleted: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct PathMove {
+    pub from: String,
+    pub to: String,
+}

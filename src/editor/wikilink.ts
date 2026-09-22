@@ -1,12 +1,12 @@
 /**
- * wikilink CM6 扩展（契约 §7.2）：
+ * wikilink 的 CodeMirror 6 扩展：
  * - Decoration：把 `[[`、`]]`、`|` 隐藏；target 替换为可点击的链接标记
  * - Click handler：走 docStore.resolveAndOpenWikilink（path 完全匹配 → 打开；
  *   唯一 basename 匹配 → 打开；多匹配/无匹配 → toast 提示）
  *
- * 语法树解析（Lezer inline parser）作为下一个里程碑：先以 Rust 解析为准
- * （契约第 8 步的 vault-core 部分已经完成），前端这里用 CM6 markdown 内置的
- * 解析 + 正则 fallback 找到 wikilink 范围做装饰。后续 Lezer 扩展再换成语法树驱动。
+ * 语法树解析（Lezer inline parser）作为下一个里程碑：当前以 Rust 解析为准，
+ * 前端先用 CM6 markdown 内置的解析 + 正则 fallback 找到 wikilink 范围做装饰。
+ * 后续 Lezer 扩展再换成语法树驱动。
  */
 import {
   Decoration,
@@ -17,8 +17,9 @@ import {
 } from '@codemirror/view'
 import { RangeSetBuilder } from '@codemirror/state'
 import { useDocStore } from '../stores/docStore'
+import { useTabsStore } from '../stores/tabsStore'
 
-/** wikilink 形式：`[[...]]`，5 种内部形态（契约 §7.1） */
+/** wikilink 语法：`[[...]]`，5 种内部形态（详见本文件上方的枚举）。 */
 const WIKILINK_RE = /\[\[([^\n[\]]+?)\]\]/g
 
 class WikilinkWidget extends WidgetType {
@@ -179,7 +180,8 @@ export const wikilinkClick = ViewPlugin.fromClass(
           .resolveAndOpenWikilink(wikilinkTarget)
           .then((r) => {
             if (r.found && r.path) {
-              useDocStore.getState().openDoc(r.path)
+              // 走标签页打开（已有标签则激活）
+              useTabsStore.getState().openTab(r.path)
             } else if (r.ambiguous) {
               useDocStore.setState({
                 lastError: `找到多个同名笔记，请用精确路径`,

@@ -7,8 +7,9 @@ use tauri::State;
 use tauri_specta::Event;
 
 use crate::dto::{
-    AppError, BacklinkDto, CreateNoteRequest, DiscardLocalRequest, NoteSummaryDto, ReadNoteResponse,
-    SaveNoteRequest, SaveNoteResponse, VaultStatus,
+    AppError, BacklinkDto, CreateNoteRequest, DeleteDirRequest, DeleteNoteRequest,
+    DiscardLocalRequest, NoteSummaryDto, PathChangesResponse, PathMove, ReadNoteResponse,
+    RenameDirRequest, RenameNoteRequest, SaveNoteRequest, SaveNoteResponse, VaultStatus,
 };
 use crate::events::{FileChanged, TreeChanged};
 use vault_engine::{VaultService, WatcherService};
@@ -26,6 +27,7 @@ pub fn vault_open(
     state: State<'_, AppState>,
     app_handle: tauri::AppHandle,
     root: String,
+    create: Option<bool>,
 ) -> Result<VaultStatus, AppError> {
     // 先停旧 watcher（旧 vault 的事件不再有意义）
     {
@@ -40,6 +42,12 @@ pub fn vault_open(
     let mut svc = state.vault.lock().map_err(|_| AppError::Io {
         detail: "状态锁中毒".into(),
     })?;
+    // 首启欢迎库场景：目录不存在时递归创建（create_dir_all 对已存在目录幂等）
+    if create.unwrap_or(false) {
+        std::fs::create_dir_all(&root).map_err(|e| AppError::Io {
+            detail: format!("创建目录失败: {e}"),
+        })?;
+    }
     svc.open(std::path::Path::new(&root))?;
 
     // 启动 watcher：外部变更 → snapshot 已在 engine 内完成 → emit file-changed
@@ -52,10 +60,23 @@ pub fn vault_open(
         known,
         history,
         move |change| {
+            // DiskContent → (DiskKind, Option<content>)，三态不混语义
+            let (disk_kind, content) = match change.disk {
+                vault_engine::DiskContent::Content(c) => {
+                    (crate::events::DiskKind::Content, Some(c))
+                }
+                vault_engine::DiskContent::Deleted => {
+                    (crate::events::DiskKind::Deleted, None)
+                }
+                vault_engine::DiskContent::Unreadable => {
+                    (crate::events::DiskKind::Unreadable, None)
+                }
+            };
             let _ = FileChanged {
                 path: change.path.clone(),
                 content_hash: change.disk_hash.clone(),
-                content: change.content.clone(),
+                disk_kind,
+                content,
             }
             .emit(&emitter);
             // 外部新建/删除文件会影响树结构
@@ -91,6 +112,31 @@ pub fn vault_status(state: State<'_, AppState>) -> Result<VaultStatus, AppError>
             .ok()
             .map(|p| p.display().to_string()),
     })
+}
+
+/// 找当前 Vault 根目录的封面图（welcome.*，png 优先），返回绝对路径（无则 null）。
+#[tauri::command]
+#[specta::specta]
+pub fn vault_cover(state: State<'_, AppState>) -> Result<Option<String>, AppError> {
+    let svc = state.vault.lock().map_err(|_| AppError::Io {
+        detail: "状态锁中毒".into(),
+    })?;
+    Ok(svc.find_cover()?.map(|p| p.display().to_string()))
+}
+
+/// 把内嵌的欢迎库默认封面写到指定 vault 根目录（welcome.jpg）。
+/// 已有同名文件则跳过（用户自定义的封面不被覆盖）；返回是否实际写入。
+#[tauri::command]
+#[specta::specta]
+pub fn welcome_cover_write(root: String) -> Result<bool, AppError> {
+    let path = std::path::Path::new(&root).join("welcome.jpg");
+    if path.exists() {
+        return Ok(false);
+    }
+    std::fs::write(&path, include_bytes!("../assets/welcome.jpg")).map_err(|e| AppError::Io {
+        detail: format!("写入默认封面失败: {e}"),
+    })?;
+    Ok(true)
 }
 
 #[tauri::command]
@@ -167,11 +213,11 @@ pub fn notes_create(
     })
 }
 
-/// 冲突抢救 + 原子化重读（PR 2 P0-3）。
-/// 1. snapshot LOCAL 到 history（source=conflict-discard）——失败则整条 Err
-/// 2. 重新读取磁盘当前内容
-/// 单次调用保证：snapshot 失败时 LOCAL 不被丢弃、磁盘内容不会被错读
-/// （前端拿到 Err 时缓冲区不变，状态机仍为 conflict）
+/// 把"抢救 LOCAL"和"重读磁盘最新版本"合成一次原子操作：
+/// 1. 先把 LOCAL 写入 history（source=conflict-discard）——失败则整条 Err
+/// 2. 再读取磁盘当前内容
+/// 单次调用的保证：snapshot 失败时 LOCAL 不会被丢弃、磁盘内容也不会被错读；
+/// 前端拿到 Err 时缓冲区保持不变，状态机仍为 conflict。
 #[tauri::command]
 #[specta::specta]
 pub fn notes_discard_local_and_reload(
@@ -183,4 +229,80 @@ pub fn notes_discard_local_and_reload(
     })?;
     let doc = svc.discard_local_and_reload(&req.path, &req.content)?;
     Ok(ReadNoteResponse::from(doc))
+}
+
+/// 删除笔记。内容已先抢救进 history，可恢复。
+#[tauri::command]
+#[specta::specta]
+pub fn notes_delete(
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    req: DeleteNoteRequest,
+) -> Result<PathChangesResponse, AppError> {
+    let svc = state.vault.lock().map_err(|_| AppError::Io {
+        detail: "状态锁中毒".into(),
+    })?;
+    svc.delete_note(&req.path)?;
+    TreeChanged { reason: "delete".into() }.emit(&app_handle).ok();
+    Ok(PathChangesResponse {
+        moved: vec![],
+        deleted: vec![req.path],
+    })
+}
+
+/// 重命名/移动笔记。返回旧→新映射，前端更新打开的编辑器。
+#[tauri::command]
+#[specta::specta]
+pub fn notes_rename(
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    req: RenameNoteRequest,
+) -> Result<PathChangesResponse, AppError> {
+    let svc = state.vault.lock().map_err(|_| AppError::Io {
+        detail: "状态锁中毒".into(),
+    })?;
+    svc.rename_note(&req.from, &req.to)?;
+    TreeChanged { reason: "rename".into() }.emit(&app_handle).ok();
+    Ok(PathChangesResponse {
+        moved: vec![PathMove { from: req.from, to: req.to }],
+        deleted: vec![],
+    })
+}
+
+/// 删除目录：目录下所有笔记先抢救进 history 再整体移除。
+#[tauri::command]
+#[specta::specta]
+pub fn notes_delete_dir(
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    req: DeleteDirRequest,
+) -> Result<PathChangesResponse, AppError> {
+    let svc = state.vault.lock().map_err(|_| AppError::Io {
+        detail: "状态锁中毒".into(),
+    })?;
+    let deleted = svc.delete_dir(&req.dir)?;
+    TreeChanged { reason: "delete-dir".into() }.emit(&app_handle).ok();
+    Ok(PathChangesResponse { moved: vec![], deleted })
+}
+
+/// 重命名目录：目录下全部笔记路径前缀替换，返回受影响映射。
+#[tauri::command]
+#[specta::specta]
+pub fn notes_rename_dir(
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    req: RenameDirRequest,
+) -> Result<PathChangesResponse, AppError> {
+    let svc = state.vault.lock().map_err(|_| AppError::Io {
+        detail: "状态锁中毒".into(),
+    })?;
+    let moved = svc.rename_dir(&req.from, &req.to)?;
+    TreeChanged { reason: "rename-dir".into() }.emit(&app_handle).ok();
+    Ok(PathChangesResponse {
+        moved: moved
+            .into_iter()
+            .map(|(from, to)| PathMove { from, to })
+            .collect(),
+        deleted: vec![],
+    })
 }

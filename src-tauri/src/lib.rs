@@ -11,12 +11,18 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         .commands(collect_commands![
             commands::vault_open,
             commands::vault_status,
+            commands::vault_cover,
+            commands::welcome_cover_write,
             commands::notes_list,
             commands::notes_read,
             commands::notes_backlinks,
             commands::notes_save,
             commands::notes_create,
             commands::notes_discard_local_and_reload,
+            commands::notes_delete,
+            commands::notes_rename,
+            commands::notes_delete_dir,
+            commands::notes_rename_dir,
         ])
         .events(collect_events![events::TreeChanged, events::FileChanged])
         .error_handling(tauri_specta::ErrorHandlingMode::Result)

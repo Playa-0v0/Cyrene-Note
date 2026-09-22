@@ -1,7 +1,7 @@
 /**
  * Editor —— CodeMirror 6 装配。
  *
- * 内容流（architecture.md §4 三权分立）：
+ * 内容流的三权分立模型：
  * - 打开文档：openDoc() 返回内容 → dispatch 全文档 change（带 MutationOrigin 注解）
  * - 编辑：CM6 内部持有缓冲区，update listener 只对用户输入 origin markDirty/scheduleSave
  * - 保存：scheduleSave 捕获 immutable SaveSnapshot，timer 触发时用 snap 而非现读
@@ -11,9 +11,9 @@
  *
  * autosave：停止输入 800ms 或失焦时触发。
  *
- * PR 1 安全：
- * - 切文档时旧的 in-flight save 自动失效（sessionId + generation）
- * - 程序化 CM dispatch（open / 热重载 / 冲突重读）不触发 autosave / dirty
+ * 会话安全约束：
+ * - 切文档时旧的 in-flight save 自动失效（用 sessionId + generation 标识）
+ * - 程序化 CM dispatch（打开 / 热重载 / 冲突重读）不会触发 autosave 也不会标 dirty
  */
 import { useEffect, useRef } from 'react'
 import {
@@ -22,17 +22,23 @@ import {
   StateEffect,
   Compartment as CmCompartment,
 } from '@codemirror/state'
-import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars } from '@codemirror/view'
+import { EditorView, keymap, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
-import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language'
+import { syntaxHighlighting, defaultHighlightStyle, HighlightStyle, bracketMatching, foldKeymap } from '@codemirror/language'
+import { tags } from '@lezer/highlight'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import { GFM } from '@lezer/markdown'
 import { languages } from '@codemirror/language-data'
 
 import { events, commands } from '../lib/bindings'
 import { useDocStore, describeError } from '../stores/docStore'
 import { MutationOrigin, type SaveSnapshot } from '../docSession'
-import { livePreview } from './livePreview'
+import { livePreview, livePreviewBlocks } from './livePreview'
+import { Highlight } from './highlight'
+import { foldOnHeading } from './foldOnHeading'
+import { selectionMenu } from './selectionMenu'
 import { wikilinkDecorations, wikilinkClick } from './wikilink'
+import { editorViewRef } from './editorViewRef'
 import { BacklinksPanel } from '../features/backlinks/BacklinksPanel'
 import './livePreview.css'
 
@@ -48,20 +54,22 @@ export function Editor() {
   const pendingSnapRef = useRef<SaveSnapshot | null>(null)
 
   const path = useDocStore((s) => s.path)
-  const sessionId = useDocStore((s) => s.sessionId)
   const status = useDocStore((s) => s.status)
 
-  // ── path 变化 → 打开文档（每个 sessionId 触发一次）────────
+  // ── path 变化 → 打开文档（唯一驱动源）────────
+  // 效果只依赖 path：openDoc 内部会换 sessionId，若也依赖它会造成
+  // "openDoc 改 sessionId → 效果重跑 → 再 openDoc" 的无限循环，
+  // 所有读取结果都被判过期丢弃，编辑器永远是空的。
   useEffect(() => {
-    if (!viewRef.current || !path || sessionId === null) return
-    const mySession = sessionId
+    if (!viewRef.current || !path) return
+    const myPath = path
     let cancelled = false
     ;(async () => {
-      const content = await useDocStore.getState().openDoc(path)
+      const content = await useDocStore.getState().openDoc(myPath)
       const view = viewRef.current
-      // 异步期间会话变了 → 丢弃
+      // 异步期间路径又变了 → 丢弃
       if (!view || cancelled || content === null) return
-      if (useDocStore.getState().sessionId !== mySession) return
+      if (useDocStore.getState().path !== myPath) return
       view.dispatch({
         changes: { from: 0, to: view.state.doc.length, insert: content },
         annotations: programmaticTxn.of(true),
@@ -70,29 +78,29 @@ export function Editor() {
     })()
     return () => {
       cancelled = true
+      // 切走文档：作废挂起的自动保存（脏内容已由 tabsStore 切换前冲盘处理）
+      if (saveTimerRef.current !== null) {
+        window.clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
+      pendingSnapRef.current = null
     }
-  }, [path, sessionId])
-
-  // 兜底：FileTree click 同路径不触发 sessionId 变化时，sessionId 为空 → 直接走 openDoc。
-  // （FileTree 现已统一用 setState({path}) 走 Editor；这里是边界兜底）
-  useEffect(() => {
-    if (!viewRef.current || !path || sessionId !== null) return
-    void useDocStore.getState().openDoc(path)
-  }, [path, sessionId])
+  }, [path])
 
   // ── watcher 外部修改：热重载 / 冲突裁决 ─────────
   useEffect(() => {
     const unlisten = events.fileChanged.listen((e) => {
-      const { path: p, content_hash: hash, content } = e.payload
+      const { path: p, content_hash: hash, disk_kind: diskKind, content } = e.payload
       const view = viewRef.current
       if (!view) return
-      const decision = useDocStore.getState().onExternalChange(p, hash, content)
+      const decision = useDocStore.getState().onExternalChange(p, hash, diskKind, content)
       if (decision.kind === 'reload') {
         view.dispatch({
           changes: { from: 0, to: view.state.doc.length, insert: decision.content },
           annotations: programmaticTxn.of(true),
         })
       }
+      // unreadable / deleted / conflict / ignore：缓冲区不动（或由冲突横幅接管）
     })
     return () => {
       unlisten.then((f) => f())
@@ -123,6 +131,8 @@ export function Editor() {
         const s = pendingSnapRef.current
         if (!s) return
         pendingSnapRef.current = null
+        // 快照属于旧文档（切换标签期间残留）→ 丢弃，防止旧内容写进新文档
+        if (s.path !== useDocStore.getState().path) return
         useDocStore.getState().saveDoc(s.content)
       }, AUTOSAVE_DELAY_MS)
     }
@@ -132,28 +142,37 @@ export function Editor() {
       state: EditorState.create({
         doc: '',
         extensions: [
-          lineNumbers(),
-          highlightActiveLineGutter(),
+          // 不显示行号栏（Obsidian 默认无行号）
           highlightSpecialChars(),
+          // 软换行：超长行在可视宽度处折行，不横向滚动
+          EditorView.lineWrapping,
           history(),
-          foldGutter(),
+          // 折叠开关不放在行号栏（gutter），而是嵌在标题行首（见 foldOnHeading）
+          foldOnHeading,
           drawSelection(),
           dropCursor(),
           EditorState.allowMultipleSelections.of(true),
           rectangularSelection(),
           crosshairCursor(),
-          highlightActiveLine(),
+          // 不启用 highlightActiveLine：光标所在行不做整行高亮（Obsidian 同款行为）
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+          // 去掉默认高亮给标题（# 一~六级）加的下划线
+          syntaxHighlighting(headingNoUnderline),
           bracketMatching(),
-          markdown({ base: markdownLanguage, codeLanguages: languages }),
+          // GFM 扩展：表格、任务列表、删除线等（base 只有 commonmark，不带表格解析）
+          // Highlight 扩展：==高亮==（Obsidian 风格，非 GFM 标准，自实现）
+          markdown({ base: markdownLanguage, codeLanguages: languages, extensions: [GFM, Highlight] }),
           livePreview,
+          livePreviewBlocks,
+          // 选中文字后右键弹出格式菜单（Obsidian 式）
+          selectionMenu,
           wikilinkDecorations,
           wikilinkClick,
           keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap, indentWithTab]),
           // 缓冲区变化 → 协调态
-          // PR 1 (P0-2)：只有"用户输入"origin 才触发 dirty + autosave；
-          // 程序替换（open / external-reload / conflict-resolution）带 programmaticTxn 注解，
-          // 不计入 dirty、不入 autosave、不入 undo 历史（见各 dispatch 调用）
+          // 只有"用户输入"origin 的更新才触发 dirty 标记和 autosave。
+          // 程序化替换（打开 / 热重载 / 冲突重读）都带 programmaticTxn 注解，
+          // 不会计入 dirty、不会进入 autosave、也不会进 undo 历史（见各 dispatch 调用）。
           EditorView.updateListener.of((update) => {
             if (!update.docChanged) return
             const programmatic = update.transactions.some((tr) =>
@@ -172,11 +191,14 @@ export function Editor() {
       }),
     })
     viewRef.current = view
+    // 注册给 tabsStore：切标签前冲盘保存需要读到当前缓冲
+    editorViewRef.current = view
     return () => {
       if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current)
       pendingSnapRef.current = null
       view.destroy()
       viewRef.current = null
+      editorViewRef.current = null
     }
   }, [])
 
@@ -249,6 +271,14 @@ function ConflictBanner() {
     </div>
   )
 }
+
+// 覆盖默认语法高亮给标题加的下划线：
+// defaultHighlightStyle 对 tags.heading 定义了 underline + bold，
+// 且注入的样式表会盖掉 .lp-h* 的同名属性，所以这里必须和
+// livePreview.css 的标题字重保持同值（Obsidian 规范：标题 700）
+const headingNoUnderline = HighlightStyle.define([
+  { tag: tags.heading, fontWeight: '700', textDecoration: 'none' },
+])
 
 // 从 DOM 反查 view（Banner 是 Editor 子组件；.cm-editor 元素 → findFromDOM）
 function viewRefOfBanner(): EditorView | null {

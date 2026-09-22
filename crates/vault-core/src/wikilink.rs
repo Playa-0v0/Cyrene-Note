@@ -1,4 +1,5 @@
-//! Wikilink 解析（契约 §7.1）。
+//! Wikilink 语法解析：把 `[[...]]` 切出 (target, alias, heading) 三元组，
+//! 解析业务（重名解析、虚链、rename 重写等）留给上层。
 //!
 //! 5 种形式：
 //! - `[[Note]]`
@@ -7,8 +8,8 @@
 //! - `[[Folder/Note]]`
 //! - `[[Folder/Note|Alias]]`
 //!
-//! 不裁决（§7.3）：大小写敏感性、重名解析、rename 重写、虚链、heading 锚归一。
-//! 解析层只负责切出 (target, alias, heading) 三元组，解析业务留给上层。
+//! 当前版本不裁决的行为边界：大小写敏感性、重名解析、rename 重写、虚链、
+//! heading 锚归一——这些都让上层业务决定，解析层只切字段。
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WikiLink {
@@ -266,8 +267,8 @@ mod tests {
 
     #[test]
     fn preserves_chinese_and_punctuation_in_target() {
-        // 契约 §7.1 没限制字符集；target 可以是任意非控制字符
-        // （中文 + 文件夹斜杠 + 拉丁 + 括号，但空格会断开 wikilink 所以避免）
+        // wikilink 语法本身没有限制字符集：target 可以是除控制字符外的任意字符
+        // （中文、文件夹斜杠、拉丁字母、括号都可以；空格会断开 wikilink 所以要避开）
         assert_eq!(
             links("[[论文精读/Attention-(Self)]]"),
             vec![("论文精读/Attention-(Self)".into(), None, None)]

@@ -1,0 +1,148 @@
+/* ============================================================
+   Cyrene Note — Design Tokens
+   浅色主题「珍珠白 + 品牌粉」
+   所有颜色、圆角、阴影、字体从这里统一管理
+   ============================================================ */
+
+:root {
+  /* ---------- 表面 / 背景 ---------- */
+  --bg-primary: #ffffff;        /* 主背景：笔记区、卡片 */
+  --bg-sidebar: #f5f5f7;        /* 侧边栏浅灰 */
+  --bg-surface: #fafafc;        /* 次级表面：输入框底、hover 底 */
+  --bg-elevated: #ffffff;       /* 弹层、浮窗 */
+
+  /* ---------- 品牌粉 ---------- */
+  --pink-50:  #fff1f6;          /* hover 背景、选中背景 */
+  --pink-100: #ffd6e4;          /* focus 光晕 */
+  --pink-200: #ffb1cb;          /* 选中边框 */
+  --pink-300: #ff7da8;          /* 强调浅 */
+  --pink-400: #ff6b97;          /* 强调中 */
+  --pink-500: #ff5b8a;          /* 主色：按钮、选中、链接 */
+  --pink-600: #e84a78;          /* hover 深、强调文字 */
+  --pink-700: #c43a64;          /* 最深强调 */
+
+  /* ---------- 文字 ---------- */
+  --text-strong:  #1d1d1f;      /* 标题 */
+  --text-default: #2c2c2e;      /* 正文 */
+  --text-muted:   #4f4a57;      /* 弱化信息 */
+  --text-faint:   #6f6876;      /* placeholder、时间戳 */
+
+  /* ---------- 边框 ---------- */
+  --border-faint: rgba(0, 0, 0, 0.06);
+  --border-soft:  #e5e5ea;      /* 常规分割线 */
+  --border-strong:#d2d2d7;      /* 输入框、强调边界 */
+
+  /* ---------- 阴影 ---------- */
+  --shadow-card:    0 1px 2px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
+  --shadow-elevated:0 8px 32px rgba(0,0,0,0.10);
+  --shadow-pink:    0 4px 16px rgba(255,91,138,0.20);
+
+  /* ---------- 圆角 ---------- */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* ---------- 间距 ---------- */
+  --space-xxs: 4px;
+  --space-xs:  8px;
+  --space-sm:  12px;
+  --space-md:  16px;
+  --space-lg:  20px;
+  --space-xl:  24px;
+  --space-xxl: 32px;
+}
+
+/* 思源黑体（本地打包，CN 子集）：400 常规 / 500 中等 / 700 粗体 / 900 特粗
+   注意：@font-face 必须在顶层，嵌进 :root 会被浏览器忽略导致字体不加载 */
+@font-face {
+  font-family: "Source Han Sans CN";
+  src: url("/fonts/SourceHanSansCN-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Source Han Sans CN";
+  src: url("/fonts/SourceHanSansCN-Medium.otf") format("opentype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Source Han Sans CN";
+  src: url("/fonts/SourceHanSansCN-Bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Source Han Sans CN";
+  src: url("/fonts/SourceHanSansCN-Heavy.otf") format("opentype");
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* ---------- 字体 ---------- */
+  --font-sans: "Source Han Sans CN", "Noto Sans SC", -apple-system, BlinkMacSystemFont,
+               "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular,
+               Menlo, Consolas, monospace;
+
+  --text-hero:    600 40px/1.20 var(--font-sans);
+  --text-h1:      600 28px/1.30 var(--font-sans);
+  --text-h2:      600 24px/1.35 var(--font-sans);
+  --text-h3:      600 20px/1.40 var(--font-sans);
+  --text-title:   600 16px/1.45 var(--font-sans);
+  --text-body:    400 14px/1.60 var(--font-sans);
+  --text-body-em: 500 14px/1.60 var(--font-sans);
+  --text-small:   400 13px/1.50 var(--font-sans);
+  --text-caption: 400 12px/1.50 var(--font-sans);
+  --text-micro:   400 11px/1.40 var(--font-sans);
+  --text-mono:    400 13px/1.55 var(--font-mono);
+
+  /* ---------- 编辑器专用（Obsidian 官方排版体系） ---------- */
+  --editor-max-width: 900px;
+  /* Obsidian：正文 16px / 行高 1.5（normal），紧凑 UI 1.3（tight） */
+  --editor-font-size: 16px;
+  --editor-line-height: 1.5;
+  --editor-padding: 24px 32px;
+
+  /* Obsidian 字重阶梯 */
+  --weight-normal:   400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  /* Obsidian UI 字号（固定 px，区别于内容区相对 em） */
+  --ui-xs: 12px;
+  --ui-sm: 13px;
+  --ui-md: 15px;
+  --ui-lg: 20px;
+
+  /* Obsidian 行高 */
+  --leading-normal: 1.5;
+  --leading-tight:  1.3;
+
+  /* ---------- 状态色 ---------- */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger:  #e11d48;
+  --color-info:    var(--pink-500);
+
+  /* ---------- 动效 ---------- */
+  --motion-fast:   120ms ease;
+  --motion-normal: 240ms ease;
+  --motion-slow:   320ms ease;
+
+  /* ---------- z-index 层级 ---------- */
+  --z-base:      1;
+  --z-panel:     10;
+  --z-overlay:   50;
+  --z-modal:     100;
+  --z-toast:     200;
+}

@@ -5,21 +5,36 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	vaultOpen: (root: string) => typedError<VaultStatus, AppError>(__TAURI_INVOKE("vault_open", { root })),
+	vaultOpen: (root: string, create: boolean | null) => typedError<VaultStatus, AppError>(__TAURI_INVOKE("vault_open", { root, create })),
 	vaultStatus: () => typedError<VaultStatus, AppError>(__TAURI_INVOKE("vault_status")),
+	/**  找当前 Vault 根目录的封面图（welcome.*，png 优先），返回绝对路径（无则 null）。 */
+	vaultCover: () => typedError<string | null, AppError>(__TAURI_INVOKE("vault_cover")),
+	/**
+	 *  把内嵌的欢迎库默认封面写到指定 vault 根目录（welcome.jpg）。
+	 *  已有同名文件则跳过（用户自定义的封面不被覆盖）；返回是否实际写入。
+	 */
+	welcomeCoverWrite: (root: string) => typedError<boolean, AppError>(__TAURI_INVOKE("welcome_cover_write", { root })),
 	notesList: () => typedError<NoteSummaryDto[], AppError>(__TAURI_INVOKE("notes_list")),
 	notesRead: (path: string) => typedError<ReadNoteResponse, AppError>(__TAURI_INVOKE("notes_read", { path })),
 	notesBacklinks: (target: string) => typedError<BacklinkDto[], AppError>(__TAURI_INVOKE("notes_backlinks", { target })),
 	notesSave: (req: SaveNoteRequest) => typedError<SaveNoteResponse, AppError>(__TAURI_INVOKE("notes_save", { req })),
 	notesCreate: (req: CreateNoteRequest) => typedError<SaveNoteResponse, AppError>(__TAURI_INVOKE("notes_create", { req })),
 	/**
-	 *  冲突抢救 + 原子化重读（PR 2 P0-3）。
-	 *  1. snapshot LOCAL 到 history（source=conflict-discard）——失败则整条 Err
-	 *  2. 重新读取磁盘当前内容
-	 *  单次调用保证：snapshot 失败时 LOCAL 不被丢弃、磁盘内容不会被错读
-	 *  （前端拿到 Err 时缓冲区不变，状态机仍为 conflict）
+	 *  把"抢救 LOCAL"和"重读磁盘最新版本"合成一次原子操作：
+	 *  1. 先把 LOCAL 写入 history（source=conflict-discard）——失败则整条 Err
+	 *  2. 再读取磁盘当前内容
+	 *  单次调用的保证：snapshot 失败时 LOCAL 不会被丢弃、磁盘内容也不会被错读；
+	 *  前端拿到 Err 时缓冲区保持不变，状态机仍为 conflict。
 	 */
 	notesDiscardLocalAndReload: (req: DiscardLocalRequest) => typedError<ReadNoteResponse, AppError>(__TAURI_INVOKE("notes_discard_local_and_reload", { req })),
+	/**  删除笔记。内容已先抢救进 history，可恢复。 */
+	notesDelete: (req: DeleteNoteRequest) => typedError<PathChangesResponse, AppError>(__TAURI_INVOKE("notes_delete", { req })),
+	/**  重命名/移动笔记。返回旧→新映射，前端更新打开的编辑器。 */
+	notesRename: (req: RenameNoteRequest) => typedError<PathChangesResponse, AppError>(__TAURI_INVOKE("notes_rename", { req })),
+	/**  删除目录：目录下所有笔记先抢救进 history 再整体移除。 */
+	notesDeleteDir: (req: DeleteDirRequest) => typedError<PathChangesResponse, AppError>(__TAURI_INVOKE("notes_delete_dir", { req })),
+	/**  重命名目录：目录下全部笔记路径前缀替换，返回受影响映射。 */
+	notesRenameDir: (req: RenameDirRequest) => typedError<PathChangesResponse, AppError>(__TAURI_INVOKE("notes_rename_dir", { req })),
 };
 
 /** Events */
@@ -44,19 +59,32 @@ export type CreateNoteRequest = {
 	content: string,
 };
 
+export type DeleteDirRequest = {
+	dir: string,
+};
+
+export type DeleteNoteRequest = {
+	path: string,
+};
+
 export type DiscardLocalRequest = {
 	path: string,
 	/**  即将被丢弃的编辑器缓冲内容 */
 	content: string,
 };
 
+export type DiskKind = "content" | "deleted" | "unreadable";
+
 /**
  *  单文件内容变化（外部修改热重载/冲突检测）。
- *  content = None 表示文件被外部删除。
+ *  disk_kind 三态：content = 正常内容（content 字段为归一化文本）；
+ *  deleted = 文件被外部删除；unreadable = 文件在但无法加载（非法 UTF-8 等）。
  */
 export type FileChanged = {
 	path: string,
 	content_hash: string,
+	/**  见结构体注释；与 content 字段联动：content 仅为 Some 当且仅当 kind == content */
+	disk_kind: DiskKind,
 	content: string | null,
 };
 
@@ -69,6 +97,22 @@ export type NoteSummaryDto = {
 	modified_ms: number | null,
 };
 
+/**
+ *  rename/delete 的结果：受影响路径映射 + 提示性原因。
+ *  前端据此更新打开的编辑器（旧路径 → 新路径）或关闭已删的缓冲区。
+ */
+export type PathChangesResponse = {
+	/**  旧路径 → 新路径（delete 时值为空） */
+	moved: PathMove[],
+	/**  被删除的路径 */
+	deleted: string[],
+};
+
+export type PathMove = {
+	from: string,
+	to: string,
+};
+
 export type ReadNoteResponse = {
 	path: string,
 	/**  归一化后内容（LF、无 BOM） */
@@ -77,6 +121,16 @@ export type ReadNoteResponse = {
 	content_hash: string,
 	/**  该笔记内的 wikilink 出链（target + heading + alias） */
 	links: WikiLinkDto[],
+};
+
+export type RenameDirRequest = {
+	from: string,
+	to: string,
+};
+
+export type RenameNoteRequest = {
+	from: string,
+	to: string,
 };
 
 export type SaveNoteRequest = {

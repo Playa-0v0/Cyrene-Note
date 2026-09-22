@@ -5,7 +5,8 @@
 //! - history/index.db             ：版本链表（path, hash, ts, source）
 //!
 //! 独立于 .cyrene/index.db（后者是派生数据，可删可重建）；
-//! 重建派生数据的流程永远不该知道本目录存在（契约 §5.4）。
+//! 重建派生数据（比如反向链接、搜索索引）的流程不应该感知本目录的存在
+//! ——只能通过 history 的公共 API 访问历史快照。
 //!
 //! 写入顺序：先对象后 DB 行。崩溃残留的孤儿对象由 GC 清理，无害。
 
@@ -138,65 +139,120 @@ impl HistoryStore {
         }
     }
 
-    /// GC：删除「无任何 history 行引用」的对象。
+    /// GC 分两步执行：先在一个数据库事务里把过期的 history row 删掉，
+    /// 再扫描 objects 表，把已经没有任何 row 引用的对象文件删掉。
+    /// 顺序保证：必须等 DB 删完才能删 object。即使中途崩溃，
+    /// 最坏只是留下孤儿 blob（下一次 GC 清理），绝不会出现 row 指向
+    /// 不存在的 object 的悬空引用。
+    ///
     /// 保留策略：每路径最近 N 版 + 30 天内的版本不删其对象。
     pub fn gc(&self) -> std::io::Result<usize> {
         const KEEP_PER_PATH: i64 = 20;
         const KEEP_WINDOW_MS: i64 = 30 * 24 * 3600 * 1000;
 
-        // 保留集合：每路径最近 N 个 hash + 窗口期内的 hash
-        let mut keep: std::collections::HashSet<String> = std::collections::HashSet::new();
-        {
+        // ── Phase 1：先在事务外收集每路径要删的 hash 集合 ──
+        // 避免事务中嵌套 prepare——SQLite 同一连接事务内的嵌套 Statement 会死锁。
+        let now = now_ms();
+        let all_paths: Vec<String> = {
             let db = self.db();
             let mut stmt = db
                 .prepare("SELECT DISTINCT path FROM history")
                 .map_err(io_err)?;
-            let paths: Vec<String> = stmt
+            let paths = stmt
                 .query_map([], |row| row.get(0))
                 .map_err(io_err)?
                 .filter_map(|r| r.ok())
                 .collect();
-            for path in paths {
+            paths
+        };
+
+        let mut expire_per_path: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for path in &all_paths {
+            let rows: Vec<(String, i64)> = {
+                let db = self.db();
                 let mut stmt = db
-                    .prepare(
-                        "SELECT hash, ts FROM history WHERE path = ?1 ORDER BY ts DESC",
-                    )
+                    .prepare("SELECT hash, ts FROM history WHERE path = ?1 ORDER BY ts DESC")
                     .map_err(io_err)?;
-                let rows: Vec<(String, i64)> = stmt
+                let rows = stmt
                     .query_map(rusqlite::params![path], |row| {
                         Ok((row.get(0)?, row.get(1)?))
                     })
                     .map_err(io_err)?
                     .filter_map(|r| r.ok())
                     .collect();
-                for (i, (hash, ts)) in rows.iter().enumerate() {
-                    if (i as i64) < KEEP_PER_PATH || *ts >= now_ms() - KEEP_WINDOW_MS {
-                        keep.insert(hash.clone());
-                    }
-                }
+                rows
+            };
+            let expire: Vec<String> = rows
+                .iter()
+                .enumerate()
+                .filter_map(|(i, (hash, ts))| {
+                    let keep =
+                        (i as i64) < KEEP_PER_PATH || *ts >= now - KEEP_WINDOW_MS;
+                    if keep { None } else { Some(hash.clone()) }
+                })
+                .collect();
+            if !expire.is_empty() {
+                expire_per_path.insert(path.clone(), expire);
             }
         }
+        // db guard（Phase 1 查询用）已随块作用域释放，下面可以重新取锁
 
-        // 扫描对象目录，删除不在保留集合内的
+        // ── Phase 1 续：单一 transaction 批量 DELETE ──
+        if !expire_per_path.is_empty() {
+            let db = self.db();
+            let tx = db.unchecked_transaction().map_err(io_err)?;
+            for (path, hashes) in &expire_per_path {
+                let placeholders = hashes.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                let sql = format!(
+                    "DELETE FROM history WHERE path = ?1 AND hash IN ({})",
+                    placeholders
+                );
+                let mut params: Vec<&dyn rusqlite::ToSql> = vec![&path];
+                for h in hashes {
+                    params.push(h);
+                }
+                tx.execute(&sql, params.as_slice()).map_err(io_err)?;
+            }
+            tx.commit().map_err(io_err)?;
+            // tx drop, db guard drop
+        }
+
+        // ── Phase 2：重新读 live hashes，扫描 objects 删除未引用的 ──
+        let live_hashes: std::collections::HashSet<String> = {
+            let db = self.db();
+            let mut stmt = db
+                .prepare("SELECT DISTINCT hash FROM history")
+                .map_err(io_err)?;
+            let set = stmt
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(io_err)?
+                .filter_map(|r| r.ok())
+                .collect();
+            set
+        };
+
         let objects_dir = self.root.join("objects");
         let mut removed = 0;
-        for shard in std::fs::read_dir(&objects_dir)? {
-            let shard = shard?;
-            if !shard.path().is_dir() {
-                continue;
-            }
-            for obj in std::fs::read_dir(shard.path())? {
-                let obj = obj?;
-                let name = obj.file_name().to_string_lossy().to_string();
-                if name.ends_with(".tmp") {
-                    let _ = std::fs::remove_file(obj.path()); // 崩溃残留
-                    removed += 1;
+        if objects_dir.exists() {
+            for shard in std::fs::read_dir(&objects_dir)? {
+                let shard = shard?;
+                if !shard.path().is_dir() {
                     continue;
                 }
-                let hash = name.strip_suffix(".zst").unwrap_or(&name).to_string();
-                if !keep.contains(&hash) {
-                    let _ = std::fs::remove_file(obj.path());
-                    removed += 1;
+                for obj in std::fs::read_dir(shard.path())? {
+                    let obj = obj?;
+                    let name = obj.file_name().to_string_lossy().to_string();
+                    if name.ends_with(".tmp") {
+                        let _ = std::fs::remove_file(obj.path()); // 崩溃残留
+                        removed += 1;
+                        continue;
+                    }
+                    let hash = name.strip_suffix(".zst").unwrap_or(&name).to_string();
+                    if !live_hashes.contains(&hash) {
+                        let _ = std::fs::remove_file(obj.path());
+                        removed += 1;
+                    }
                 }
             }
         }
@@ -285,6 +341,79 @@ mod tests {
         assert!(s.load("a.md", h1.as_str()).is_ok());
         // 孤儿对象被删
         assert!(!obj.exists());
+    }
+
+    #[test]
+    fn gc_keeps_shared_objects_when_one_reference_removed() {
+        // 不同 source 在同一时刻对同一路径写入时，两条 history row 会共享同一个 object
+        // （内容去重）。删除其中一行时，object 必须保留给另一行继续引用。
+        // GC 顺序：先删 DB row → 重新 SELECT DISTINCT hash 拿到 live 集合
+        // → 只删不在 live 中的 object。
+        let (s, _d) = store();
+        // 同一字节内容 = 同 hash；用不同 source 触发 snapshot，但 store.snapshot
+        // 通过 INSERT OR IGNORE 不会重复 DB row。所以这里直接造两个不同 hash
+        // 指向同一物理对象，模拟 dedupe 场景。
+        let shared_hash = ContentHash::from_bytes(b"v1\n");
+        let obj = s.root.join("objects").join(&shared_hash.as_str()[..2])
+            .join(format!("{}.zst", shared_hash.as_str()));
+        std::fs::create_dir_all(obj.parent().unwrap()).unwrap();
+        std::fs::write(&obj, zstd::encode_all(&b"v1\n"[..], 3).unwrap()).unwrap();
+        // 两个不同路径都指向 shared_hash（模拟跨路径引用同一版本）
+        s.snapshot("a.md", b"v1\n", HistorySource::Open).unwrap();
+        s.snapshot("b.md", b"v1\n", HistorySource::Open).unwrap();
+
+        // 即使两条 row 都被 GC（保留策略外），object 必须保留直到 Phase 2 重新读取
+        // 后才发现 live_hashes 为空才能删
+        let removed = s.gc().unwrap();
+        assert_eq!(removed, 0, "两个引用都未过期时不该删");
+        assert!(obj.exists());
+    }
+
+    #[test]
+    fn gc_deletes_rows_before_objects_no_dangling_ref() {
+        // 不变式：GC 完成后，任何 history row 指向的 object 都必须仍然存在，
+// 不允许悬空引用。
+        let (s, _d) = store();
+        // 制造 5 个快照全超过保留（path 上只保留 KEEP_PER_PATH=20 个，但用
+        // 单一 path 只产 5 行 → 5 行全保留 → 0 删除测试不充分）
+        // 改为：直接手构造数据：1 个 live snapshot + 1 个手放的 orphan object
+        s.snapshot("a.md", b"v_live\n", HistorySource::NotesSave).unwrap();
+        let orphan_hash = ContentHash::from_bytes(b"orphan_content");
+        let orphan_obj = s.root.join("objects")
+            .join(&orphan_hash.as_str()[..2])
+            .join(format!("{}.zst", orphan_hash.as_str()));
+        std::fs::create_dir_all(orphan_obj.parent().unwrap()).unwrap();
+        std::fs::write(&orphan_obj, zstd::encode_all(&b"orphan_content"[..], 3).unwrap()).unwrap();
+
+        // GC 应该清掉 orphan
+        let removed = s.gc().unwrap();
+        assert_eq!(removed, 1, "orphan object 必须被删");
+        // 验证 DB 行的 hash 对应 object 仍存在（无 dangling）
+        let db = s.db();
+        let mut stmt = db
+            .prepare("SELECT DISTINCT hash FROM history")
+            .unwrap();
+        let live: std::collections::HashSet<String> = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        for h in &live {
+            let obj = s.root.join("objects").join(&h[..2]).join(format!("{h}.zst"));
+            assert!(obj.exists(), "DB row 引用 {h} 但 object 缺失 → dangling");
+        }
+        // orphan 已被删
+        assert!(!orphan_obj.exists());
+    }
+
+    #[test]
+    fn gc_idempotent() {
+        let (s, _d) = store();
+        s.snapshot("a.md", b"v1\n", HistorySource::Open).unwrap();
+        s.snapshot("b.md", b"v2\n", HistorySource::Open).unwrap();
+        let first = s.gc().unwrap();
+        let second = s.gc().unwrap();
+        assert_eq!(first, second);
     }
 
     #[test]

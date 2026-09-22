@@ -8,4 +8,4 @@ pub mod watcher;
 
 pub use history::HistoryStore;
 pub use service::{LinkIndex, NoteSummary, NoteDocument, VaultService};
-pub use watcher::{ExternalChange, KnownVersions, WatcherService};
+pub use watcher::{DiskContent, ExternalChange, KnownVersions, WatcherService};

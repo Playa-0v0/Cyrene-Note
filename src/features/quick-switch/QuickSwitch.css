@@ -1,0 +1,141 @@
+/* QuickSwitch —— 快速切换浮层面板 */
+
+.quick-switch-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 120px;
+  background: rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(2px);
+}
+
+.quick-switch-panel {
+  width: 520px;
+  max-width: calc(100vw - 40px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.quick-switch-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-muted);
+}
+
+.quick-switch-search input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-default);
+  font-size: 15px;
+  font-family: var(--font-sans);
+}
+
+.quick-switch-search input::placeholder {
+  color: var(--text-faint);
+}
+
+.quick-switch-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-secondary);
+}
+
+.quick-switch-tabs button {
+  padding: 4px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+
+.quick-switch-tabs button:hover {
+  background: var(--pink-50);
+  color: var(--pink-600);
+}
+
+.quick-switch-tabs button.active {
+  background: var(--pink-50);
+  color: var(--pink-600);
+  font-weight: 500;
+}
+
+.quick-switch-list {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.quick-switch-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text-default);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+
+.quick-switch-item:hover,
+.quick-switch-item.selected {
+  background: var(--pink-50);
+  color: var(--pink-600);
+}
+
+.quick-switch-item svg {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.quick-switch-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-switch-meta {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-switch-shortcut {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  padding: 2px 6px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.quick-switch-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 13px;
+}

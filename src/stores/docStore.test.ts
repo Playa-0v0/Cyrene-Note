@@ -1,15 +1,19 @@
 /**
- * 文档会话安全测试（PR 1：GPT P0-1 / P0-2 / H-1 / H-2）。
+ * 文档会话安全测试集：覆盖会话身份识别、跨会话结果丢弃、markDirty 规则、
+ * 以及 discardLocalAndReload 的失败回滚。
  *
- * 通过 vi.mock 把 IPC client 替换成可控替身，覆盖真异步路径。
+ * 用 vi.mock 把 IPC client 替换成可控替身，覆盖真实异步路径。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 // 替身：每个测试覆写对应方法的实现
 const mockNotesRead = vi.fn()
 const mockNotesSave = vi.fn()
-const mockNotesBacklinks = vi.fn()
+// backlinks 默认成功空表：openDoc/saveDoc 成功路径都会 fire _refreshBacklinks，
+// 不给默认值会变成 unhandled rejection 噪音
+const mockNotesBacklinks = vi.fn().mockResolvedValue({ status: 'ok', data: [] })
 const mockNotesDiscardLocal = vi.fn()
+const mockNotesDiscardLocalAndReload = vi.fn()
 const mockVaultOpen = vi.fn()
 const mockVaultStatus = vi.fn()
 const mockNotesList = vi.fn()
@@ -20,6 +24,7 @@ vi.mock('../lib/bindings', () => ({
     notesSave: (...args: any[]) => mockNotesSave(...args),
     notesBacklinks: (...args: any[]) => mockNotesBacklinks(...args),
     notesDiscardLocal: (...args: any[]) => mockNotesDiscardLocal(...args),
+    notesDiscardLocalAndReload: (...args: any[]) => mockNotesDiscardLocalAndReload(...args),
     vaultOpen: (...args: any[]) => mockVaultOpen(...args),
     vaultStatus: (...args: any[]) => mockVaultStatus(...args),
     notesList: (...args: any[]) => mockNotesList(...args),
@@ -46,7 +51,7 @@ const resetStore = () =>
     savedRevision: 0,
   })
 
-describe('PR 1: openDoc 会话身份', () => {
+describe('openDoc 生成的会话身份', () => {
   beforeEach(() => {
     resetStore()
     mockNotesRead.mockReset()
@@ -74,7 +79,7 @@ describe('PR 1: openDoc 会话身份', () => {
   })
 })
 
-describe('PR 1: saveDoc revision-aware', () => {
+describe('saveDoc 基于 revision 判定 clean/dirty', () => {
   beforeEach(() => {
     resetStore()
     mockNotesSave.mockReset()
@@ -125,7 +130,7 @@ describe('PR 1: saveDoc revision-aware', () => {
   })
 })
 
-describe('PR 1: 跨会话 save 结果丢弃', () => {
+describe('跨会话的 save 结果会被丢弃', () => {
   beforeEach(() => {
     resetStore()
     mockNotesSave.mockReset()
@@ -181,7 +186,7 @@ describe('PR 1: 跨会话 save 结果丢弃', () => {
   })
 })
 
-describe('PR 1: markDirty / revision 规则', () => {
+describe('markDirty 与 revision 的联动规则', () => {
   beforeEach(() => resetStore())
 
   it('sessionId=null 时 markDirty 不生效（状态保持 clean，revision 不递增）', () => {
@@ -201,14 +206,14 @@ describe('PR 1: markDirty / revision 规则', () => {
   })
 })
 
-describe('PR 1: discardLocalAndReload 失败保 LOCAL', () => {
+describe('discardLocalAndReload 失败时保留 LOCAL', () => {
   beforeEach(() => {
     resetStore()
-    mockNotesDiscardLocal.mockReset()
+    mockNotesDiscardLocalAndReload.mockReset()
   })
 
   it('history snapshot 失败 → 保留 LOCAL + 冲突态 + lastError', async () => {
-    mockNotesDiscardLocal.mockResolvedValue({ status: 'error', error: { type: 'Io', detail: 'disk full' } })
+    mockNotesDiscardLocalAndReload.mockResolvedValue({ status: 'error', error: { type: 'Io', detail: 'disk full' } })
     useDocStore.setState({
       path: 'a.md', baseHash: 'H0', status: 'conflict',
       conflict: { expected: 'H0', actual: 'H1' }, sessionId: 1, revision: 3, savedRevision: 0,
@@ -222,8 +227,8 @@ describe('PR 1: discardLocalAndReload 失败保 LOCAL', () => {
   })
 
   it('history snapshot 成功 + 重读成功 → 切到新 base，状态回 clean', async () => {
-    mockNotesDiscardLocal.mockResolvedValue({ status: 'ok', data: { path: 'a.md', new_content_hash: 'H2' } })
-    mockNotesRead.mockResolvedValue({ status: 'ok', data: { path: 'a.md', content: 'new disk', content_hash: 'H2', links: [] } })
+    // 返回形状是 ReadNoteResponse（content_hash），非 SaveNoteResponse
+    mockNotesDiscardLocalAndReload.mockResolvedValue({ status: 'ok', data: { path: 'a.md', content: 'new disk', content_hash: 'H2', links: [] } })
     useDocStore.setState({
       path: 'a.md', baseHash: 'H0', status: 'conflict',
       conflict: { expected: 'H0', actual: 'H1' }, sessionId: 1, revision: 3, savedRevision: 0,
@@ -233,5 +238,56 @@ describe('PR 1: discardLocalAndReload 失败保 LOCAL', () => {
     const s = useDocStore.getState()
     expect(s.baseHash).toBe('H2')
     expect(s.status).toBe('clean')
+  })
+})
+
+describe('onExternalChange 三态语义（2026-09 竞态修复）', () => {
+  beforeEach(() => resetStore())
+
+  const opened = () =>
+    useDocStore.setState({ path: 'a.md', baseHash: 'H0', sessionId: 1, status: 'clean' })
+
+  it('diskKind=deleted → kind=deleted，状态回 clean', () => {
+    opened()
+    const d = useDocStore.getState().onExternalChange('a.md', '', 'deleted', null)
+    expect(d.kind).toBe('deleted')
+    expect(useDocStore.getState().status).toBe('clean')
+  })
+
+  it('diskKind=unreadable → kind=unreadable，缓冲区状态与 baseHash 不动，置 lastError', () => {
+    opened()
+    const d = useDocStore.getState().onExternalChange('a.md', 'HBAD', 'unreadable', null)
+    expect(d.kind).toBe('unreadable')
+    expect(useDocStore.getState().baseHash).toBe('H0') // 不推进
+    expect(useDocStore.getState().status).toBe('clean') // 不变
+    expect(useDocStore.getState().lastError).toBeTruthy()
+  })
+
+  it('diskKind=unreadable 时脏缓冲不进冲突流程（REMOTE 不可得）', () => {
+    useDocStore.setState({ path: 'a.md', baseHash: 'H0', sessionId: 1, status: 'dirty' })
+    const d = useDocStore.getState().onExternalChange('a.md', 'HBAD', 'unreadable', null)
+    expect(d.kind).toBe('unreadable')
+    expect(useDocStore.getState().status).toBe('dirty') // 不是 conflict
+    expect(useDocStore.getState().conflict).toBeNull()
+  })
+
+  it('diskKind=content + clean → reload，baseHash 推进', () => {
+    opened()
+    const d = useDocStore.getState().onExternalChange('a.md', 'H1', 'content', 'remote v2')
+    expect(d).toEqual({ kind: 'reload', content: 'remote v2', hash: 'H1' })
+    expect(useDocStore.getState().baseHash).toBe('H1')
+  })
+
+  it('diskKind=content + dirty → conflict（REMOTE 内容可展示）', () => {
+    useDocStore.setState({ path: 'a.md', baseHash: 'H0', sessionId: 1, status: 'dirty' })
+    const d = useDocStore.getState().onExternalChange('a.md', 'H1', 'content', 'remote v2')
+    expect(d).toEqual({ kind: 'conflict', remoteContent: 'remote v2', remoteHash: 'H1' })
+    expect(useDocStore.getState().status).toBe('conflict')
+  })
+
+  it('未打开的文档 → ignore', () => {
+    opened()
+    const d = useDocStore.getState().onExternalChange('other.md', 'H1', 'content', 'x')
+    expect(d.kind).toBe('ignore')
   })
 })

@@ -1,10 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Cyrene Notes 主窗口能力：对话框（选择 Vault）+ 事件",
+  "description": "Cyrene Notes 主窗口能力：对话框（选择 Vault）+ 事件 + 自定义窗口控制",
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "dialog:default"
+    "dialog:default",
+    "core:path:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging"
   ]
 }

@@ -1,6 +1,6 @@
 //! NotePath —— Vault 相对路径的领域类型。
 //!
-//! 规则（契约 §3 / Cyrene resolveSafe 对齐）：
+//! 路径解析规则（与 Cyrene resolveSafe 行为保持一致）：
 //! - 内部统一 `/` 分隔（Windows 反斜杠归一）
 //! - 拒绝绝对路径、`..` 逃逸、空段
 //! - 只接受笔记扩展名集合（与 Cyrene 白名单一致）

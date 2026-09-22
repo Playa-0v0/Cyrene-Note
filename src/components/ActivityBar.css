@@ -1,0 +1,56 @@
+/* ActivityBar —— 左侧窄功能栏 */
+
+.activity-bar {
+  width: 48px;
+  min-width: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-xs) 0 var(--space-sm);
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-soft);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.activity-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+/* 第二组（AI/图谱/视频）与第一组之间留一条细分隔 */
+.activity-group + .activity-group {
+  margin-top: var(--space-xs);
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--border-soft);
+}
+
+.activity-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color var(--motion-fast), background var(--motion-fast);
+}
+
+.activity-item:hover {
+  background: var(--pink-50);
+  color: var(--pink-600);
+}
+
+.activity-item.active {
+  background: var(--pink-50);
+  color: var(--pink-500);
+}
+
+.activity-item svg {
+  flex-shrink: 0;
+}

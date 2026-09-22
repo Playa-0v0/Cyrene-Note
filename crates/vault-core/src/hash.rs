@@ -1,7 +1,8 @@
 //! 内容 hash：SHA-256 over raw disk bytes。
 //!
-//! 与 Cyrene-Agent 的 contentHash()（fs.readFile utf8 → sha256）逐字节等价，
-//! 已对源码验证（契约 §3.2）。hash 是版本变更的最终事实。
+//! 与 Cyrene-Agent 的 contentHash()（fs.readFile utf8 → sha256）逐字节等价
+//! （已对源码验证）。hash 是版本变更的最终事实：只要磁盘字节变化，
+//! hash 一定不同；版本是否变更一律以 hash 为准。
 
 use sha2::{Digest, Sha256};
 
@@ -51,7 +52,7 @@ mod tests {
 
     #[test]
     fn crlf_and_lf_hash_differently() {
-        // 契约 §3.2：hash 对原始字节计算，CRLF/LF 必须不同
+        // hash 直接对磁盘原始字节计算：换行符是 \r\n 还是 \n 一定会让 hash 不同。
         assert_ne!(
             ContentHash::from_bytes(b"# A\r\n"),
             ContentHash::from_bytes(b"# A\n")

@@ -1,0 +1,54 @@
+/* SidebarToggle —— 顶栏的文件树收起/展开按钮
+   SVG 动画：框 + 竖线 + chevron */
+
+.sidebar-toggle {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+
+.sidebar-toggle:hover {
+  background: var(--pink-50);
+  color: var(--pink-600);
+}
+
+.sidebar-toggle:active {
+  background: var(--pink-100);
+}
+
+.sidebar-toggle > svg {
+  transform: scaleY(0.88);
+}
+
+/* 竖线 */
+.sidebar-toggle-line {
+  transition: d 0.25s ease;
+}
+
+.sidebar-toggle.is-hovered .sidebar-toggle-line {
+  d: path("M16.8 14V34");
+}
+
+/* Chevron */
+.sidebar-toggle-chevron {
+  opacity: 0;
+  transform-origin: 30px 24px;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.sidebar-toggle.is-hovered .sidebar-toggle-chevron {
+  opacity: 1;
+}
+
+.sidebar-toggle.is-collapsed.is-hovered .sidebar-toggle-chevron {
+  transform: scaleX(-1);
+}

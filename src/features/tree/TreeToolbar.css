@@ -1,0 +1,95 @@
+/* TreeToolbar —— 文件树顶部操作栏 */
+
+.tree-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px var(--space-sm) 6px;
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+.tree-tool-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color var(--motion-fast), background var(--motion-fast);
+}
+
+.tree-tool-btn:hover,
+.tree-tool-btn.active {
+  color: var(--text-default);
+  background: var(--pink-50);
+}
+
+.tree-tool-btn:active {
+  background: var(--pink-100);
+}
+
+/* 下拉菜单容器：相对定位锚点 */
+.tree-tool-menu-wrap {
+  position: relative;
+  display: flex;
+}
+
+/* 下拉菜单本体：相对触发按钮水平居中，避免伸出侧栏被裁切 */
+.tree-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  min-width: 148px;
+  padding: 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+}
+
+.tree-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-default);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+
+.tree-menu-item:hover {
+  background: var(--pink-50);
+  color: var(--pink-600);
+}
+
+.tree-menu-item.active {
+  background: var(--pink-50);
+  color: var(--pink-600);
+  font-weight: 500;
+}
+
+/* 勾选位（视图开关用） */
+.tree-menu-check {
+  display: inline-flex;
+  width: 14px;
+  justify-content: center;
+  color: var(--pink-500);
+  font-size: 12px;
+}

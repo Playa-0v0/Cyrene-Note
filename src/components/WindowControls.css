@@ -1,0 +1,43 @@
+/* WindowControls —— 窗口右上角控制按钮（绝对定位，浮在顶部各栏标题区最右） */
+
+.window-controls {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: stretch;
+  height: 44px;
+}
+
+.wc-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+
+.wc-btn:hover {
+  background: var(--pink-50);
+  color: var(--text-default);
+}
+
+.wc-btn:active {
+  background: var(--pink-100);
+}
+
+/* 关闭键 hover：Windows 惯例红色 */
+.wc-close:hover {
+  background: #e81123;
+  color: #ffffff;
+}
+
+.wc-close:active {
+  background: #c50f1f;
+  color: #ffffff;
+}

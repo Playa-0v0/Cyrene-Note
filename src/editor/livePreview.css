@@ -1,4 +1,5 @@
-/* Live Preview（lp- 前缀）——语法标记隐藏与富文本观感 */
+/* Live Preview（lp- 前缀）—— 语法标记隐藏与富文本观感
+   浅色主题：白底 + 品牌粉 */
 
 /* 语法标记隐藏（# 前缀、** 星号、` 反引号等） */
 .lp-hide {
@@ -8,38 +9,82 @@
   letter-spacing: -2px;
 }
 
-/* 标题字号阶梯 */
-.lp-h1 { font-size: 1.7em; font-weight: 700; line-height: 1.3; }
-.lp-h2 { font-size: 1.45em; font-weight: 700; line-height: 1.3; }
-.lp-h3 { font-size: 1.25em; font-weight: 600; line-height: 1.35; }
-.lp-h4 { font-size: 1.12em; font-weight: 600; }
-.lp-h5 { font-size: 1.05em; font-weight: 600; }
-.lp-h6 { font-size: 1em; font-weight: 600; opacity: 0.85; }
+/* 光标所在行的语法标记：半透明显示而非隐藏（Obsidian 行为——
+   行保持富文本观感，标记淡化到 35%） */
+.lp-faint {
+  opacity: 0.35;
+}
 
-/* 强调 */
-.lp-strong { font-weight: 700; }
+/* 标题折叠箭头（Obsidian 式）：尖角 SVG，悬浮在标题行首左侧，不占正文宽度 */
+.lp-fold-arrow {
+  display: inline-block;
+  width: 1.1em;
+  margin-left: calc(-1.1em - 6px); /* 拉出正文左缘，悬在留白区 */
+  color: var(--text-faint);
+  font-size: 0.75em;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  text-align: center;
+  vertical-align: middle;
+  transition: color var(--motion-fast), transform var(--motion-fast);
+  transform: rotate(90deg); /* 展开：尖角向下 */
+}
+.lp-fold-arrow.lp-folded {
+  transform: rotate(0deg); /* 折叠：尖角向右 > */
+}
+.lp-fold-arrow:hover {
+  color: var(--pink-600);
+}
+/* 折叠后 CM6 自动生成的「…」占位符不要显示——箭头本身已指示折叠态 */
+.cm-foldPlaceholder {
+  display: none;
+}
+.lp-h1 { font-size: 1.80em; font-weight: var(--weight-bold); line-height: var(--leading-tight); color: var(--text-strong); margin: 0.6em 0 0.4em; }
+.lp-h2 { font-size: 1.50em; font-weight: var(--weight-bold); line-height: var(--leading-tight); color: var(--text-strong); margin: 0.55em 0 0.35em; }
+.lp-h3 { font-size: 1.25em; font-weight: var(--weight-bold); line-height: var(--leading-tight); color: var(--text-strong); margin: 0.5em 0 0.3em; }
+.lp-h4 { font-size: 1.10em; font-weight: var(--weight-semibold); line-height: var(--leading-tight); color: var(--text-default); margin: 0.45em 0 0.3em; }
+.lp-h5 { font-size: 1.00em; font-weight: var(--weight-semibold); line-height: var(--leading-tight); color: var(--text-default); margin: 0.4em 0 0.25em; }
+.lp-h6 { font-size: 1.00em; font-weight: var(--weight-medium); line-height: var(--leading-tight); color: var(--text-muted); margin: 0.4em 0 0.25em; }
+
+/* 强调（Obsidian：bold 在当前字重上加强，正文 400 → 700） */
+.lp-strong { font-weight: var(--weight-bold); color: var(--text-strong); }
 .lp-em { font-style: italic; }
+
+/* 删除线（~~）：文字划线，颜色稍淡（Obsidian 观感） */
+.lp-strike {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+/* 高亮（==）：暖黄底色块（Obsidian 默认观感，与品牌粉不冲突） */
+.lp-highlight {
+  background: rgba(255, 213, 79, 0.4);
+}
 
 /* 行内代码 */
 .lp-code {
-  font-family: "Cascadia Code", Consolas, monospace;
-  background: var(--bg-hover);
-  border-radius: 4px;
+  font-family: var(--font-mono);
+  background: var(--pink-50);
+  border: 1px solid var(--pink-200);
+  border-radius: var(--radius-xs);
   padding: 0.1em 0.35em;
   font-size: 0.92em;
+  color: var(--pink-600);
 }
 
-/* 引用块 */
-.lp-quote {
-  border-left: 3px solid var(--accent);
-  padding-left: 10px;
-  color: var(--fg-dim);
+/* 引用块：行装饰铺满整行（背景+左边框连续），文字样式由行类继承 */
+.lp-quote-line {
+  background: rgba(255, 91, 138, 0.04);
+  border-left: 3px solid var(--pink-400);
+  padding-left: var(--space-sm);
+  color: var(--text-muted);
   font-style: italic;
 }
 
 /* 列表符号 */
 .lp-bullet {
-  color: var(--accent);
+  color: var(--pink-500);
   display: inline-block;
   min-width: 1.1em;
 }
@@ -47,28 +92,250 @@
 /* 水平线 */
 .lp-hr {
   border: none;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-soft);
   margin: 0.6em 0;
 }
 
 /* 链接文本化 */
 .lp-link {
-  color: var(--accent);
+  color: var(--pink-600);
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
 }
 
-/* wikilink：Obsidian 风格的紫色链接 + hover 下划线 */
+/* wikilink：品牌粉链接 + hover 下划线 */
 .lp-wikilink {
-  color: var(--accent);
+  color: var(--pink-600);
   text-decoration: underline;
   text-decoration-style: dashed;
   text-underline-offset: 3px;
   font-weight: 500;
   cursor: pointer;
+  transition: background var(--motion-fast);
 }
 .lp-wikilink:hover {
   text-decoration-style: solid;
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  background: var(--pink-50);
+}
+
+/* ── 代码块卡片：逐行同底色拼成整卡，首尾行圆角 ── */
+.lp-codeblock {
+  background: var(--bg-sidebar);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  padding-left: 14px;
+  padding-right: 14px;
+}
+.lp-codeblock-first {
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  padding-top: 8px;
+}
+.lp-codeblock-last {
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  padding-bottom: 8px;
+}
+/* 单行代码块（首尾同行）：四角圆角 */
+.lp-codeblock.lp-codeblock-first.lp-codeblock-last {
+  border-radius: var(--radius-md);
+}
+/* 围栏行的语言小标签（```lang 替换而来） */
+.lp-code-lang-chip {
+  display: inline-block;
+  font-family: var(--font-sans);
+  font-size: var(--ui-xs);
+  color: var(--text-faint);
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: var(--radius-xs);
+  padding: 1px 6px;
+  letter-spacing: 0.02em;
+}
+/* 闭合围栏行的薄占位（当卡片底部内边距） */
+.lp-code-fence-end {
+  display: inline-block;
+  height: 4px;
+  line-height: 4px;
+}
+
+/* ── 数学公式（KaTeX）── */
+.lp-math .katex { font-size: 1.05em; }
+.lp-math-block {
+  display: block;
+  text-align: center;
+  margin: 0.75em 0;
+  overflow-x: auto;
+}
+.lp-math-block .katex-display { margin: 0; }
+
+/* ── 表格（源码整块替换为真表格）── */
+.lp-table-wrap {
+  display: block;
+  margin: 0.75em 0;
+  overflow-x: auto;
+}
+.lp-table {
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.lp-table th,
+.lp-table td {
+  border: 1px solid var(--border-soft);
+  padding: 6px 14px;
+}
+.lp-table th {
+  background: var(--pink-50);
+  color: var(--text-strong);
+  font-weight: var(--weight-semibold);
+}
+.lp-table tbody tr:hover {
+  background: rgba(255, 91, 138, 0.04);
+}
+
+/* ── 内嵌 SVG（白名单清洗后渲染）── */
+.lp-svg {
+  display: block;
+  margin: 0.75em 0;
+  text-align: center;
+}
+.lp-svg svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ── 选区右键菜单（Obsidian 式：短主菜单 + 悬停展开子菜单）── */
+.lp-sel-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 160px;
+  max-height: calc(100vh - 8px); /* 窗口过矮时兜底：限高滚动 */
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 6px 0;
+  font-size: var(--ui-sm);
+  user-select: none;
+}
+.lp-sel-menu-sep {
+  height: 1px;
+  margin: 5px 10px;
+  background: var(--border-faint);
+}
+.lp-sel-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 14px;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--ui-sm);
+  color: var(--text-default);
+  cursor: pointer;
+  text-align: left;
+}
+.lp-sel-menu-item:hover {
+  background: var(--pink-50);
+  color: var(--pink-700);
+}
+/* 菜单项图标（IconPark 线性描边） */
+.lp-sel-menu-icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--text-faint);
+}
+.lp-sel-menu-icon path,
+.lp-sel-menu-icon rect {
+  stroke: currentColor;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.lp-sel-menu-item:hover .lp-sel-menu-icon {
+  color: var(--pink-500);
+}
+.lp-sel-menu-label {
+  flex: 1;
+}
+.lp-sel-menu-hint {
+  font-size: var(--ui-xs);
+  color: var(--text-faint);
+}
+.lp-sel-menu-item:hover .lp-sel-menu-hint {
+  color: var(--pink-500);
+}
+/* 子菜单入口：悬停时入口项高亮 + 子面板向右展开 */
+.lp-sel-menu-entry {
+  position: relative;
+}
+.lp-sel-menu-arrow {
+  margin-left: auto;
+  font-size: 14px;
+  color: var(--text-faint);
+  line-height: 1;
+}
+.lp-sel-menu-item:hover .lp-sel-menu-arrow {
+  color: var(--pink-500);
+}
+/* 子菜单面板：由 JS 挂到 body（fixed 定位），避免被主菜单的滚动裁剪 */
+.lp-sel-menu-sub {
+  position: fixed;
+  min-width: 150px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 6px 0;
+  z-index: 1001;
+}
+/* 子菜单展开期间，主菜单入口保持高亮（悬停状态由 JS 控制） */
+.lp-sel-menu-entry.lp-sel-open > .lp-sel-menu-item {
+  background: var(--pink-50);
+  color: var(--pink-700);
+}
+/* ── 文字颜色行：预设色块 + 原生色盘 ── */
+.lp-sel-colors {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+}
+.lp-sel-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform var(--motion-fast);
+}
+.lp-sel-swatch:hover {
+  transform: scale(1.18);
+}
+/* 选区当前颜色：品牌粉双层选中圈 */
+.lp-sel-swatch-on {
+  box-shadow: 0 0 0 2px var(--bg-elevated), 0 0 0 4px var(--pink-500);
+}
+/* 原生色盘输入：彩虹圆环外观，内圈为当前取色 */
+.lp-sel-picker {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin-left: 4px;
+  border: none;
+  border-radius: 50%;
+  background: conic-gradient(#ff5b8a, #f08c00, #ffd23f, #30a46c, #3e63dd, #9d5bd2, #ff5b8a);
+  cursor: pointer;
+}
+.lp-sel-picker::-webkit-color-swatch-wrapper {
+  padding: 3px;
+}
+.lp-sel-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 50%;
 }

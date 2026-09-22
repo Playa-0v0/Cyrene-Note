@@ -1,0 +1,337 @@
+/* VaultBar —— 侧栏底部仓库切换条 */
+
+.vault-bar {
+  flex-shrink: 0;
+  /* 未打开仓库时文件树不渲染，靠 auto margin 保证仍贴在侧栏底部 */
+  margin-top: auto;
+  border-top: 1px solid var(--border-soft);
+  padding: 6px var(--space-sm);
+}
+
+.vault-bar-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-default);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background var(--motion-fast);
+}
+
+.vault-bar-btn:hover:not(:disabled) {
+  background: var(--pink-50);
+}
+
+.vault-bar-btn:disabled {
+  cursor: default;
+  color: var(--text-faint);
+}
+
+.vault-bar-btn .vault-bar-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-bar-chevron {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  transition: transform var(--motion-fast);
+}
+
+.vault-bar-chevron.open {
+  transform: rotate(180deg);
+}
+
+/* ---------- 仓库列表弹层（fixed 向上弹出） ---------- */
+
+.vault-popup {
+  position: fixed;
+  z-index: var(--z-modal);
+  width: 216px;
+  padding: 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  /* 侧栏很矮 / 仓库很多时限制高度并允许滚动，不伸出屏幕 */
+  max-height: min(360px, calc(100vh - 16px));
+  overflow-y: auto;
+}
+
+.vault-popup-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.vault-popup-item:hover {
+  background: var(--pink-50);
+}
+
+.vault-popup-item.current {
+  background: var(--pink-50);
+}
+
+.vault-popup-item .vp-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-default);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-popup-item.current .vp-name {
+  color: var(--pink-600);
+  font-weight: 500;
+}
+
+.vault-popup-item .vp-check {
+  color: var(--pink-500);
+  font-size: 11px;
+}
+
+.vault-popup-item .vp-path {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-popup-divider {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border-soft);
+  flex-shrink: 0;
+}
+
+.vault-popup-action {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-default);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+
+.vault-popup-action:hover {
+  background: var(--pink-50);
+  color: var(--pink-600);
+}
+
+.vault-popup-empty {
+  padding: 10px;
+  font-size: 12px;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+/* ---------- 管理仓库弹窗 ---------- */
+
+.vault-manager-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vault-manager {
+  width: 380px;
+  max-width: calc(100vw - 48px);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-elevated);
+  padding: 14px 16px 16px;
+}
+
+.vm-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.vm-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-default);
+}
+
+.vm-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+
+.vm-close:hover {
+  background: var(--pink-50);
+  color: var(--text-default);
+}
+
+.vm-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vm-empty {
+  padding: 18px 0;
+  font-size: 12.5px;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+.vm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.vm-row:hover {
+  background: var(--pink-50);
+}
+
+.vm-row.current {
+  background: var(--pink-50);
+}
+
+.vm-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vm-name {
+  font-size: 13px;
+  color: var(--text-default);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vm-row.current .vm-name {
+  color: var(--pink-600);
+  font-weight: 500;
+}
+
+.vm-path {
+  font-size: 11px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vm-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.vm-current-tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--pink-600);
+  background: var(--pink-50);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+}
+
+.vm-remove {
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+
+.vm-remove:hover {
+  color: #b91c1c;
+  background: #fef2f2;
+}
+
+.vm-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 7px 0;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color var(--motion-fast), color var(--motion-fast), background var(--motion-fast);
+}
+
+.vm-add:hover {
+  border-color: var(--pink-400);
+  color: var(--pink-600);
+  background: var(--pink-50);
+}
